@@ -1,4 +1,4 @@
-package authgin
+package authclient
 
 import (
 	"context"
@@ -15,8 +15,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/turnkeystaffing/go-authclient"
 )
 
 func TestMain(m *testing.M) {
@@ -24,111 +22,102 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// mockValidator implements authclient.TokenValidator with a func field for test control.
-type mockValidator struct {
-	ValidateTokenFunc func(ctx context.Context, token string) (*authclient.Claims, error)
-}
-
-func (m *mockValidator) ValidateToken(ctx context.Context, token string) (*authclient.Claims, error) {
-	return m.ValidateTokenFunc(ctx, token)
-}
-
-// parseErrorResponse parses the error response body from httptest.ResponseRecorder.
-func parseErrorResponse(t *testing.T, rec *httptest.ResponseRecorder) errorResponse {
+// parseGinErrorResponse parses the error response body from httptest.ResponseRecorder.
+func parseGinErrorResponse(t *testing.T, rec *httptest.ResponseRecorder) errorResponse {
 	t.Helper()
 	var resp errorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	return resp
 }
 
-// newTestContext creates a gin test context with a fresh recorder and request.
-func newTestContext() (*gin.Context, *httptest.ResponseRecorder) {
+// newGinTestContext creates a gin test context with a fresh recorder and request.
+func newGinTestContext() (*gin.Context, *httptest.ResponseRecorder) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil)
 	return c, w
 }
 
-// --- BearerAuth Tests ---
+// --- GinBearerAuth Tests ---
 
-func TestBearerAuth_MissingAuthHeader(t *testing.T) {
-	validator := &mockValidator{}
-	mw := BearerAuth(validator)
+func TestGinBearerAuth_MissingAuthHeader(t *testing.T) {
+	validator := &mockTokenValidator{}
+	mw := GinBearerAuth(validator)
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	mw(c)
 
 	assert.True(t, c.IsAborted())
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_request", resp.Error)
 	assert.Equal(t, "Missing authorization header", resp.ErrorDescription)
 	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
 }
 
-func TestBearerAuth_InvalidFormat(t *testing.T) {
-	validator := &mockValidator{}
-	mw := BearerAuth(validator)
+func TestGinBearerAuth_InvalidFormat(t *testing.T) {
+	validator := &mockTokenValidator{}
+	mw := GinBearerAuth(validator)
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	c.Request.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
 	mw(c)
 
 	assert.True(t, c.IsAborted())
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_request", resp.Error)
 	assert.Equal(t, "Invalid authorization header format", resp.ErrorDescription)
 	assert.Contains(t, w.Header().Get("WWW-Authenticate"), `error="invalid_request"`)
 }
 
-func TestBearerAuth_EmptyToken(t *testing.T) {
-	validator := &mockValidator{}
-	mw := BearerAuth(validator)
+func TestGinBearerAuth_EmptyToken(t *testing.T) {
+	validator := &mockTokenValidator{}
+	mw := GinBearerAuth(validator)
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	c.Request.Header.Set("Authorization", "Bearer ")
 	mw(c)
 
 	assert.True(t, c.IsAborted())
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_request", resp.Error)
 	assert.Equal(t, "Empty bearer token", resp.ErrorDescription)
 	assert.Contains(t, w.Header().Get("WWW-Authenticate"), `error="invalid_request"`)
 }
 
-func TestBearerAuth_OversizedToken(t *testing.T) {
-	validator := &mockValidator{}
-	mw := BearerAuth(validator)
+func TestGinBearerAuth_OversizedToken(t *testing.T) {
+	validator := &mockTokenValidator{}
+	mw := GinBearerAuth(validator)
 
-	bigToken := strings.Repeat("a", authclient.MaxBearerTokenLength+1)
-	c, w := newTestContext()
+	bigToken := strings.Repeat("a", MaxBearerTokenLength+1)
+	c, w := newGinTestContext()
 	c.Request.Header.Set("Authorization", "Bearer "+bigToken)
 	mw(c)
 
 	assert.True(t, c.IsAborted())
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_request", resp.Error)
 	assert.Equal(t, "Bearer token exceeds maximum length", resp.ErrorDescription)
 	assert.Contains(t, w.Header().Get("WWW-Authenticate"), `error="invalid_request"`)
 }
 
-func TestBearerAuth_ValidToken_ClaimsInGinAndRequestContext(t *testing.T) {
-	expectedClaims := &authclient.Claims{
+func TestGinBearerAuth_ValidToken_ClaimsInGinAndRequestContext(t *testing.T) {
+	expectedClaims := &Claims{
 		ClientID: "test-client-uuid",
 		Scopes:   []string{"read", "write"},
 	}
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, token string) (*authclient.Claims, error) {
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "valid-token-123", token)
 			return expectedClaims, nil
 		},
 	}
-	mw := BearerAuth(validator)
+	mw := GinBearerAuth(validator)
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	c.Request.Header.Set("Authorization", "Bearer valid-token-123")
 
 	handlerCalled := false
@@ -140,11 +129,11 @@ func TestBearerAuth_ValidToken_ClaimsInGinAndRequestContext(t *testing.T) {
 		// Verify gin context retrieval
 		val, exists := c.Get("auth_claims")
 		assert.True(t, exists)
-		ginClaims := val.(*authclient.Claims)
+		ginClaims := val.(*Claims)
 		assert.Equal(t, expectedClaims, ginClaims)
 
 		// Verify request context retrieval
-		ctxClaims, ok := authclient.ClaimsFromContext(c.Request.Context())
+		ctxClaims, ok := ClaimsFromContext(c.Request.Context())
 		assert.True(t, ok)
 		assert.Same(t, ginClaims, ctxClaims, "gin context and request context should hold same pointer")
 	})
@@ -157,49 +146,49 @@ func TestBearerAuth_ValidToken_ClaimsInGinAndRequestContext(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestBearerAuth_InvalidToken(t *testing.T) {
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, _ string) (*authclient.Claims, error) {
-			return nil, authclient.ErrTokenInvalid
+func TestGinBearerAuth_InvalidToken(t *testing.T) {
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return nil, ErrTokenInvalid
 		},
 	}
-	mw := BearerAuth(validator)
+	mw := GinBearerAuth(validator)
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	c.Request.Header.Set("Authorization", "Bearer bad-token")
 	mw(c)
 
 	assert.True(t, c.IsAborted())
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_token", resp.Error)
 	assert.Equal(t, "Token validation failed", resp.ErrorDescription)
 }
 
-func TestBearerAuth_ValidatorReturnsNilClaimsNilError(t *testing.T) {
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, _ string) (*authclient.Claims, error) {
+func TestGinBearerAuth_ValidatorReturnsNilClaimsNilError(t *testing.T) {
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return nil, nil
 		},
 	}
-	mw := BearerAuth(validator)
+	mw := GinBearerAuth(validator)
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	c.Request.Header.Set("Authorization", "Bearer some-token")
 	mw(c)
 
 	assert.True(t, c.IsAborted())
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_token", resp.Error)
 }
 
-func TestBearerAuth_CustomErrorHandler(t *testing.T) {
-	validator := &mockValidator{}
+func TestGinBearerAuth_CustomErrorHandler(t *testing.T) {
+	validator := &mockTokenValidator{}
 	customCalled := false
 	var receivedCode int
 	var receivedErrCode, receivedErrDesc string
-	mw := BearerAuth(validator, WithErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
+	mw := GinBearerAuth(validator, WithGinErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		receivedCode = statusCode
 		receivedErrCode = errCode
@@ -207,7 +196,7 @@ func TestBearerAuth_CustomErrorHandler(t *testing.T) {
 		c.AbortWithStatusJSON(statusCode, gin.H{"custom": errCode + ": " + errDesc})
 	}))
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	mw(c)
 
 	assert.True(t, customCalled)
@@ -217,14 +206,14 @@ func TestBearerAuth_CustomErrorHandler(t *testing.T) {
 	assert.Equal(t, "Missing authorization header", receivedErrDesc)
 }
 
-func TestBearerAuth_CustomClaimsKey(t *testing.T) {
-	claims := &authclient.Claims{ClientID: "custom-key"}
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, _ string) (*authclient.Claims, error) {
+func TestGinBearerAuth_CustomClaimsKey(t *testing.T) {
+	claims := &Claims{ClientID: "custom-key"}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
 	}
-	mw := BearerAuth(validator, WithClaimsKey("my_claims"))
+	mw := GinBearerAuth(validator, WithGinClaimsKey("my_claims"))
 
 	router := gin.New()
 	router.Use(mw)
@@ -234,11 +223,11 @@ func TestBearerAuth_CustomClaimsKey(t *testing.T) {
 		handlerCalled = true
 		val, exists := c.Get("my_claims")
 		assert.True(t, exists)
-		ginClaims := val.(*authclient.Claims)
+		ginClaims := val.(*Claims)
 		assert.Equal(t, claims, ginClaims)
 
 		// F2 fix: verify request context also has claims (context bridge)
-		ctxClaims, ok := authclient.ClaimsFromContext(c.Request.Context())
+		ctxClaims, ok := ClaimsFromContext(c.Request.Context())
 		assert.True(t, ok, "ClaimsFromContext must find claims even with custom gin key")
 		assert.Same(t, ginClaims, ctxClaims, "gin context and request context must hold same pointer")
 	})
@@ -251,44 +240,44 @@ func TestBearerAuth_CustomClaimsKey(t *testing.T) {
 	assert.True(t, handlerCalled)
 }
 
-func TestBearerAuth_NilValidatorPanics(t *testing.T) {
-	assert.PanicsWithValue(t, "BearerAuth: validator cannot be nil", func() {
-		BearerAuth(nil)
+func TestGinBearerAuth_NilValidatorPanics(t *testing.T) {
+	assert.PanicsWithValue(t, "GinBearerAuth: validator cannot be nil", func() {
+		GinBearerAuth(nil)
 	})
 }
 
-func TestBearerAuth_EmptyClaimsKeyPanics(t *testing.T) {
-	assert.PanicsWithValue(t, "WithClaimsKey: key cannot be empty", func() {
-		WithClaimsKey("")
+func TestGinBearerAuth_EmptyClaimsKeyPanics(t *testing.T) {
+	assert.PanicsWithValue(t, "WithGinClaimsKey: key cannot be empty", func() {
+		WithGinClaimsKey("")
 	})
 }
 
-func TestBearerAuth_NilErrorHandlerUsesDefault(t *testing.T) {
-	validator := &mockValidator{}
-	mw := BearerAuth(validator, WithErrorHandler(nil))
+func TestGinBearerAuth_NilErrorHandlerUsesDefault(t *testing.T) {
+	validator := &mockTokenValidator{}
+	mw := GinBearerAuth(validator, WithGinErrorHandler(nil))
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	mw(c)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
 }
 
-func TestBearerAuth_ContentTypeJSON(t *testing.T) {
-	validator := &mockValidator{}
-	mw := BearerAuth(validator)
+func TestGinBearerAuth_ContentTypeJSON(t *testing.T) {
+	validator := &mockTokenValidator{}
+	mw := GinBearerAuth(validator)
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	mw(c)
 
 	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
 }
 
-func TestBearerAuth_WWWAuthenticateHeader_401(t *testing.T) {
-	validator := &mockValidator{}
-	mw := BearerAuth(validator)
+func TestGinBearerAuth_WWWAuthenticateHeader_401(t *testing.T) {
+	validator := &mockTokenValidator{}
+	mw := GinBearerAuth(validator)
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	mw(c)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
@@ -298,11 +287,11 @@ func TestBearerAuth_WWWAuthenticateHeader_401(t *testing.T) {
 	assert.Contains(t, wwwAuth, `error="invalid_request"`)
 }
 
-func TestBearerAuth_ErrorResponseJSON(t *testing.T) {
-	validator := &mockValidator{}
-	mw := BearerAuth(validator)
+func TestGinBearerAuth_ErrorResponseJSON(t *testing.T) {
+	validator := &mockTokenValidator{}
+	mw := GinBearerAuth(validator)
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	mw(c)
 
 	var raw map[string]interface{}
@@ -313,17 +302,17 @@ func TestBearerAuth_ErrorResponseJSON(t *testing.T) {
 	assert.Equal(t, "invalid_request", raw["error"])
 }
 
-func TestBearerAuth_LowercaseBearer(t *testing.T) {
-	claims := &authclient.Claims{ClientID: "case-test"}
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, token string) (*authclient.Claims, error) {
+func TestGinBearerAuth_LowercaseBearer(t *testing.T) {
+	claims := &Claims{ClientID: "case-test"}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "my-token", token)
 			return claims, nil
 		},
 	}
 
 	router := gin.New()
-	router.Use(BearerAuth(validator))
+	router.Use(GinBearerAuth(validator))
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
 
@@ -335,17 +324,17 @@ func TestBearerAuth_LowercaseBearer(t *testing.T) {
 	assert.True(t, called, "lowercase 'bearer' should be accepted per RFC 6750/2617")
 }
 
-func TestBearerAuth_UppercaseBearer(t *testing.T) {
-	claims := &authclient.Claims{ClientID: "case-test"}
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, token string) (*authclient.Claims, error) {
+func TestGinBearerAuth_UppercaseBearer(t *testing.T) {
+	claims := &Claims{ClientID: "case-test"}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "my-token", token)
 			return claims, nil
 		},
 	}
 
 	router := gin.New()
-	router.Use(BearerAuth(validator))
+	router.Use(GinBearerAuth(validator))
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
 
@@ -357,17 +346,17 @@ func TestBearerAuth_UppercaseBearer(t *testing.T) {
 	assert.True(t, called, "uppercase 'BEARER' should be accepted per RFC 6750/2617")
 }
 
-func TestBearerAuth_MixedCaseBearer(t *testing.T) {
-	claims := &authclient.Claims{ClientID: "mixed-case"}
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, token string) (*authclient.Claims, error) {
+func TestGinBearerAuth_MixedCaseBearer(t *testing.T) {
+	claims := &Claims{ClientID: "mixed-case"}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "my-token", token)
 			return claims, nil
 		},
 	}
 
 	router := gin.New()
-	router.Use(BearerAuth(validator))
+	router.Use(GinBearerAuth(validator))
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
 
@@ -379,17 +368,17 @@ func TestBearerAuth_MixedCaseBearer(t *testing.T) {
 	assert.True(t, called, "mixed case 'BeArEr' should be accepted per RFC 6750/2617")
 }
 
-func TestBearerAuth_TokenWhitespaceTrimmed(t *testing.T) {
-	claims := &authclient.Claims{ClientID: "trim-test"}
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, token string) (*authclient.Claims, error) {
+func TestGinBearerAuth_TokenWhitespaceTrimmed(t *testing.T) {
+	claims := &Claims{ClientID: "trim-test"}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "my-token", token, "token should be trimmed of whitespace")
 			return claims, nil
 		},
 	}
 
 	router := gin.New()
-	router.Use(BearerAuth(validator))
+	router.Use(GinBearerAuth(validator))
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
 
@@ -401,33 +390,33 @@ func TestBearerAuth_TokenWhitespaceTrimmed(t *testing.T) {
 	assert.True(t, called)
 }
 
-func TestBearerAuth_ShortAuthHeader(t *testing.T) {
-	validator := &mockValidator{}
-	mw := BearerAuth(validator)
+func TestGinBearerAuth_ShortAuthHeader(t *testing.T) {
+	validator := &mockTokenValidator{}
+	mw := GinBearerAuth(validator)
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	c.Request.Header.Set("Authorization", "Bear")
 	mw(c)
 
 	assert.True(t, c.IsAborted())
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_request", resp.Error)
 	assert.Equal(t, "Invalid authorization header format", resp.ErrorDescription)
 }
 
-func TestBearerAuth_ValidatorReceivesRequestContext(t *testing.T) {
+func TestGinBearerAuth_ValidatorReceivesRequestContext(t *testing.T) {
 	type testCtxKey struct{}
 	var receivedCtx context.Context
-	validator := &mockValidator{
-		ValidateTokenFunc: func(ctx context.Context, _ string) (*authclient.Claims, error) {
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(ctx context.Context, _ string) (*Claims, error) {
 			receivedCtx = ctx
-			return &authclient.Claims{ClientID: "ctx-test"}, nil
+			return &Claims{ClientID: "ctx-test"}, nil
 		},
 	}
 
 	router := gin.New()
-	router.Use(BearerAuth(validator))
+	router.Use(GinBearerAuth(validator))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -440,20 +429,20 @@ func TestBearerAuth_ValidatorReceivesRequestContext(t *testing.T) {
 	assert.Equal(t, "marker", receivedCtx.Value(testCtxKey{}))
 }
 
-func TestBearerAuth_IsAbortedAfterError(t *testing.T) {
-	validator := &mockValidator{}
-	mw := BearerAuth(validator)
+func TestGinBearerAuth_IsAbortedAfterError(t *testing.T) {
+	validator := &mockTokenValidator{}
+	mw := GinBearerAuth(validator)
 
-	c, _ := newTestContext()
+	c, _ := newGinTestContext()
 	mw(c)
 
 	assert.True(t, c.IsAborted(), "c.IsAborted() must be true after error response")
 }
 
-func TestBearerAuth_CustomErrorHandlerWithoutAbort_ChainStops(t *testing.T) {
-	validator := &mockValidator{}
+func TestGinBearerAuth_CustomErrorHandlerWithoutAbort_ChainStops(t *testing.T) {
+	validator := &mockTokenValidator{}
 	// Custom error handler that does NOT call c.Abort()
-	mw := BearerAuth(validator, WithErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
+	mw := GinBearerAuth(validator, WithGinErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
 		c.JSON(statusCode, gin.H{"err": errCode})
 		// Intentionally NOT calling c.Abort()
 	}))
@@ -472,17 +461,17 @@ func TestBearerAuth_CustomErrorHandlerWithoutAbort_ChainStops(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-// --- RequireScope Tests ---
+// --- GinRequireScope Tests ---
 
-func TestRequireScope_ScopePresent(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"read", "write"}}
+func TestGinRequireScope_ScopePresent(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read", "write"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(RequireScope("read"))
+	router.Use(GinRequireScope("read"))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -495,15 +484,15 @@ func TestRequireScope_ScopePresent(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestRequireScope_ScopeMissing(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"read"}}
+func TestGinRequireScope_ScopeMissing(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(RequireScope("admin"))
+	router.Use(GinRequireScope("admin"))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -514,14 +503,14 @@ func TestRequireScope_ScopeMissing(t *testing.T) {
 
 	assert.False(t, called)
 	assert.Equal(t, http.StatusForbidden, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "insufficient_scope", resp.Error)
 	assert.Equal(t, "Required scope: admin", resp.ErrorDescription)
 }
 
-func TestRequireScope_NoClaims(t *testing.T) {
+func TestGinRequireScope_NoClaims(t *testing.T) {
 	router := gin.New()
-	router.Use(RequireScope("read"))
+	router.Use(GinRequireScope("read"))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -532,28 +521,28 @@ func TestRequireScope_NoClaims(t *testing.T) {
 
 	assert.False(t, called)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_token", resp.Error)
 	assert.Equal(t, "Missing authentication context", resp.ErrorDescription)
 	wwwAuth := w.Header().Get("WWW-Authenticate")
 	assert.Contains(t, wwwAuth, `error="invalid_token"`)
 }
 
-func TestRequireScope_EmptyScopePanics(t *testing.T) {
-	assert.PanicsWithValue(t, "RequireScope: scope cannot be empty", func() {
-		RequireScope("")
+func TestGinRequireScope_EmptyScopePanics(t *testing.T) {
+	assert.PanicsWithValue(t, "GinRequireScope: scope cannot be empty", func() {
+		GinRequireScope("")
 	})
 }
 
-func TestRequireScope_SpecialCharScope(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"read"}}
+func TestGinRequireScope_SpecialCharScope(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(RequireScope("audit:read/write"))
+	router.Use(GinRequireScope("audit:read/write"))
 
 	router.GET("/test", func(_ *gin.Context) {})
 
@@ -566,15 +555,15 @@ func TestRequireScope_SpecialCharScope(t *testing.T) {
 	assert.Contains(t, wwwAuth, "audit:read/write")
 }
 
-func TestRequireScope_CustomClaimsKey(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"read"}}
+func TestGinRequireScope_CustomClaimsKey(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("my_claims", claims)
 		c.Next()
 	})
-	router.Use(RequireScope("read", WithScopeClaimsKey("my_claims")))
+	router.Use(GinRequireScope("read", WithGinScopeClaimsKey("my_claims")))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -586,8 +575,8 @@ func TestRequireScope_CustomClaimsKey(t *testing.T) {
 	assert.True(t, called)
 }
 
-func TestRequireScope_CustomErrorHandler(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"read"}}
+func TestGinRequireScope_CustomErrorHandler(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
 
 	customCalled := false
 	var receivedErrCode, receivedErrDesc string
@@ -596,7 +585,7 @@ func TestRequireScope_CustomErrorHandler(t *testing.T) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(RequireScope("admin", WithScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
+	router.Use(GinRequireScope("admin", WithGinScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		receivedErrCode = errCode
 		receivedErrDesc = errDesc
@@ -615,15 +604,15 @@ func TestRequireScope_CustomErrorHandler(t *testing.T) {
 	assert.Equal(t, "Required scope: admin", receivedErrDesc)
 }
 
-func TestRequireScope_WWWAuthenticateHeader_403(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"read"}}
+func TestGinRequireScope_WWWAuthenticateHeader_403(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(RequireScope("admin"))
+	router.Use(GinRequireScope("admin"))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -635,17 +624,17 @@ func TestRequireScope_WWWAuthenticateHeader_403(t *testing.T) {
 	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
 }
 
-// --- RequireAnyScope Tests ---
+// --- GinRequireAnyScope Tests ---
 
-func TestRequireAnyScope_AnyMatch(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"read", "write"}}
+func TestGinRequireAnyScope_AnyMatch(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read", "write"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(RequireAnyScope([]string{"admin", "write"}))
+	router.Use(GinRequireAnyScope([]string{"admin", "write"}))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -657,15 +646,15 @@ func TestRequireAnyScope_AnyMatch(t *testing.T) {
 	assert.True(t, called)
 }
 
-func TestRequireAnyScope_NoneMatch(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"read"}}
+func TestGinRequireAnyScope_NoneMatch(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(RequireAnyScope([]string{"admin", "write"}))
+	router.Use(GinRequireAnyScope([]string{"admin", "write"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -673,14 +662,14 @@ func TestRequireAnyScope_NoneMatch(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "insufficient_scope", resp.Error)
 	assert.Equal(t, "Required one of scopes: admin, write", resp.ErrorDescription)
 }
 
-func TestRequireAnyScope_NoClaims(t *testing.T) {
+func TestGinRequireAnyScope_NoClaims(t *testing.T) {
 	router := gin.New()
-	router.Use(RequireAnyScope([]string{"read"}))
+	router.Use(GinRequireAnyScope([]string{"read"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -688,27 +677,27 @@ func TestRequireAnyScope_NoClaims(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_token", resp.Error)
 }
 
-func TestRequireAnyScope_EmptyScopesPanics(t *testing.T) {
-	assert.PanicsWithValue(t, "RequireAnyScope: scopes cannot be empty", func() {
-		RequireAnyScope([]string{})
+func TestGinRequireAnyScope_EmptyScopesPanics(t *testing.T) {
+	assert.PanicsWithValue(t, "GinRequireAnyScope: scopes cannot be empty", func() {
+		GinRequireAnyScope([]string{})
 	})
 }
 
-func TestRequireAnyScope_NilScopesPanics(t *testing.T) {
-	assert.PanicsWithValue(t, "RequireAnyScope: scopes cannot be empty", func() {
-		RequireAnyScope(nil)
+func TestGinRequireAnyScope_NilScopesPanics(t *testing.T) {
+	assert.PanicsWithValue(t, "GinRequireAnyScope: scopes cannot be empty", func() {
+		GinRequireAnyScope(nil)
 	})
 }
 
-func TestRequireAnyScope_DefensiveScopesCopy(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"admin"}}
+func TestGinRequireAnyScope_DefensiveScopesCopy(t *testing.T) {
+	claims := &Claims{Scopes: []string{"admin"}}
 
 	scopes := []string{"admin", "write"}
-	mw := RequireAnyScope(scopes)
+	mw := GinRequireAnyScope(scopes)
 
 	// Mutate original slice after middleware creation
 	scopes[0] = "MUTATED"
@@ -730,8 +719,8 @@ func TestRequireAnyScope_DefensiveScopesCopy(t *testing.T) {
 	assert.True(t, called, "middleware should use defensively-copied scopes, not mutated original")
 }
 
-func TestRequireAnyScope_CustomErrorHandler(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"read"}}
+func TestGinRequireAnyScope_CustomErrorHandler(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
 
 	customCalled := false
 	var receivedErrCode, receivedErrDesc string
@@ -740,7 +729,7 @@ func TestRequireAnyScope_CustomErrorHandler(t *testing.T) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(RequireAnyScope([]string{"admin", "write"}, WithScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
+	router.Use(GinRequireAnyScope([]string{"admin", "write"}, WithGinScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		receivedErrCode = errCode
 		receivedErrDesc = errDesc
@@ -758,15 +747,15 @@ func TestRequireAnyScope_CustomErrorHandler(t *testing.T) {
 	assert.Equal(t, "Required one of scopes: admin, write", receivedErrDesc)
 }
 
-func TestRequireAnyScope_WWWAuthenticateHeader_403(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"read"}}
+func TestGinRequireAnyScope_WWWAuthenticateHeader_403(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(RequireAnyScope([]string{"admin", "write"}))
+	router.Use(GinRequireAnyScope([]string{"admin", "write"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -779,15 +768,15 @@ func TestRequireAnyScope_WWWAuthenticateHeader_403(t *testing.T) {
 	assert.Contains(t, wwwAuth, "admin, write")
 }
 
-func TestScopeErrorHandler_NilUsesDefault(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"read"}}
+func TestGinScopeErrorHandler_NilUsesDefault(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(RequireScope("admin", WithScopeErrorHandler(nil)))
+	router.Use(GinRequireScope("admin", WithGinScopeErrorHandler(nil)))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -796,37 +785,37 @@ func TestScopeErrorHandler_NilUsesDefault(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "insufficient_scope", resp.Error)
 }
 
-func TestScopeClaimsKey_EmptyPanics(t *testing.T) {
-	assert.PanicsWithValue(t, "WithScopeClaimsKey: key cannot be empty", func() {
-		WithScopeClaimsKey("")
+func TestGinScopeClaimsKey_EmptyPanics(t *testing.T) {
+	assert.PanicsWithValue(t, "WithGinScopeClaimsKey: key cannot be empty", func() {
+		WithGinScopeClaimsKey("")
 	})
 }
 
-// --- NoopAuth Tests ---
+// --- GinNoopAuth Tests ---
 
-func TestNoopAuth_InjectsClaims(t *testing.T) {
-	defaultClaims := &authclient.Claims{
+func TestGinNoopAuth_InjectsClaims(t *testing.T) {
+	defaultClaims := &Claims{
 		ClientID: "noop-client",
 		Scopes:   []string{"read", "write"},
 	}
 
 	router := gin.New()
-	router.Use(NoopAuth(defaultClaims))
+	router.Use(GinNoopAuth(defaultClaims))
 
 	router.GET("/test", func(c *gin.Context) {
 		// gin context path
 		val, exists := c.Get("auth_claims")
 		assert.True(t, exists)
-		ginClaims := val.(*authclient.Claims)
+		ginClaims := val.(*Claims)
 		assert.Equal(t, "noop-client", ginClaims.ClientID)
 		assert.Equal(t, []string{"read", "write"}, ginClaims.Scopes)
 
 		// request context path
-		ctxClaims, ok := authclient.ClaimsFromContext(c.Request.Context())
+		ctxClaims, ok := ClaimsFromContext(c.Request.Context())
 		assert.True(t, ok)
 		assert.Same(t, ginClaims, ctxClaims)
 	})
@@ -836,12 +825,12 @@ func TestNoopAuth_InjectsClaims(t *testing.T) {
 	router.ServeHTTP(w, req)
 }
 
-func TestNoopAuth_DeepCopy(t *testing.T) {
-	defaultClaims := &authclient.Claims{
+func TestGinNoopAuth_DeepCopy(t *testing.T) {
+	defaultClaims := &Claims{
 		ClientID: "original",
 		Scopes:   []string{"read"},
 	}
-	noopMw := NoopAuth(defaultClaims)
+	noopMw := GinNoopAuth(defaultClaims)
 
 	router := gin.New()
 	router.Use(noopMw)
@@ -850,7 +839,7 @@ func TestNoopAuth_DeepCopy(t *testing.T) {
 	router.GET("/test", func(c *gin.Context) {
 		requestNum++
 		val, _ := c.Get("auth_claims")
-		claims := val.(*authclient.Claims)
+		claims := val.(*Claims)
 		if requestNum == 1 {
 			claims.Scopes = append(claims.Scopes, "mutated")
 			claims.ClientID = "mutated"
@@ -875,24 +864,24 @@ func TestNoopAuth_DeepCopy(t *testing.T) {
 	assert.Equal(t, []string{"read"}, defaultClaims.Scopes)
 }
 
-func TestNoopAuth_NilDefaultClaimsPanics(t *testing.T) {
-	assert.PanicsWithValue(t, "NoopAuth: defaultClaims cannot be nil", func() {
-		NoopAuth(nil)
+func TestGinNoopAuth_NilDefaultClaimsPanics(t *testing.T) {
+	assert.PanicsWithValue(t, "GinNoopAuth: defaultClaims cannot be nil", func() {
+		GinNoopAuth(nil)
 	})
 }
 
-func TestNoopAuth_ConcurrentDeepCopy(t *testing.T) {
-	defaultClaims := &authclient.Claims{
+func TestGinNoopAuth_ConcurrentDeepCopy(t *testing.T) {
+	defaultClaims := &Claims{
 		ClientID: "concurrent-client",
 		Scopes:   []string{"read", "write"},
 	}
 
 	// Single router — concurrent requests hit the same handler chain.
 	router := gin.New()
-	router.Use(NoopAuth(defaultClaims))
+	router.Use(GinNoopAuth(defaultClaims))
 	router.GET("/test", func(c *gin.Context) {
 		val, _ := c.Get("auth_claims")
-		claims := val.(*authclient.Claims)
+		claims := val.(*Claims)
 		claims.Scopes = append(claims.Scopes, "mutated")
 		claims.ClientID = "mutated"
 	})
@@ -916,11 +905,11 @@ func TestNoopAuth_ConcurrentDeepCopy(t *testing.T) {
 	assert.Equal(t, []string{"read", "write"}, defaultClaims.Scopes)
 }
 
-func TestNoopAuth_DeepCopyNumericDates(t *testing.T) {
+func TestGinNoopAuth_DeepCopyNumericDates(t *testing.T) {
 	expTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	nbfTime := time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC)
 	iatTime := time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC)
-	defaultClaims := &authclient.Claims{
+	defaultClaims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
 			Subject:   "test-subject",
@@ -933,10 +922,10 @@ func TestNoopAuth_DeepCopyNumericDates(t *testing.T) {
 	}
 
 	router := gin.New()
-	router.Use(NoopAuth(defaultClaims))
+	router.Use(GinNoopAuth(defaultClaims))
 	router.GET("/test", func(c *gin.Context) {
 		val, _ := c.Get("auth_claims")
-		claims := val.(*authclient.Claims)
+		claims := val.(*Claims)
 
 		require.NotNil(t, claims.ExpiresAt)
 		require.NotNil(t, claims.NotBefore)
@@ -965,11 +954,11 @@ func TestNoopAuth_DeepCopyNumericDates(t *testing.T) {
 	assert.Equal(t, expTime.Unix(), defaultClaims.ExpiresAt.Unix())
 }
 
-// --- NoopScope Tests ---
+// --- GinNoopScope Tests ---
 
-func TestNoopScope_PassesThrough(t *testing.T) {
+func TestGinNoopScope_PassesThrough(t *testing.T) {
 	router := gin.New()
-	router.Use(NoopScope())
+	router.Use(GinNoopScope())
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -983,17 +972,17 @@ func TestNoopScope_PassesThrough(t *testing.T) {
 
 // --- Middleware Chain Tests ---
 
-func TestMiddlewareChain_BearerAuth_RequireScope(t *testing.T) {
-	claims := &authclient.Claims{ClientID: "chain-client", Scopes: []string{"read", "write"}}
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, _ string) (*authclient.Claims, error) {
+func TestGinMiddlewareChain_BearerAuth_RequireScope(t *testing.T) {
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read", "write"}}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
 	}
 
 	router := gin.New()
-	router.Use(BearerAuth(validator))
-	router.Use(RequireScope("read"))
+	router.Use(GinBearerAuth(validator))
+	router.Use(GinRequireScope("read"))
 
 	handlerCalled := false
 	router.GET("/test", func(_ *gin.Context) { handlerCalled = true })
@@ -1007,17 +996,17 @@ func TestMiddlewareChain_BearerAuth_RequireScope(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestMiddlewareChain_BearerAuth_RequireScope_Denied(t *testing.T) {
-	claims := &authclient.Claims{ClientID: "chain-client", Scopes: []string{"read"}}
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, _ string) (*authclient.Claims, error) {
+func TestGinMiddlewareChain_BearerAuth_RequireScope_Denied(t *testing.T) {
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read"}}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
 	}
 
 	router := gin.New()
-	router.Use(BearerAuth(validator))
-	router.Use(RequireScope("admin"))
+	router.Use(GinBearerAuth(validator))
+	router.Use(GinRequireScope("admin"))
 
 	handlerCalled := false
 	router.GET("/test", func(_ *gin.Context) { handlerCalled = true })
@@ -1031,17 +1020,17 @@ func TestMiddlewareChain_BearerAuth_RequireScope_Denied(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
-func TestMiddlewareChain_BearerAuth_RequireAnyScope(t *testing.T) {
-	claims := &authclient.Claims{ClientID: "chain-client", Scopes: []string{"read", "write"}}
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, _ string) (*authclient.Claims, error) {
+func TestGinMiddlewareChain_BearerAuth_RequireAnyScope(t *testing.T) {
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read", "write"}}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
 	}
 
 	router := gin.New()
-	router.Use(BearerAuth(validator))
-	router.Use(RequireAnyScope([]string{"admin", "write"}))
+	router.Use(GinBearerAuth(validator))
+	router.Use(GinRequireAnyScope([]string{"admin", "write"}))
 
 	handlerCalled := false
 	router.GET("/test", func(_ *gin.Context) { handlerCalled = true })
@@ -1055,20 +1044,20 @@ func TestMiddlewareChain_BearerAuth_RequireAnyScope(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestMiddlewareChain_NoopAuth_RequireScope(t *testing.T) {
-	defaultClaims := &authclient.Claims{
+func TestGinMiddlewareChain_NoopAuth_RequireScope(t *testing.T) {
+	defaultClaims := &Claims{
 		ClientID: "noop-chain",
 		Scopes:   []string{"read", "admin"},
 	}
 
 	router := gin.New()
-	router.Use(NoopAuth(defaultClaims))
-	router.Use(RequireScope("admin"))
+	router.Use(GinNoopAuth(defaultClaims))
+	router.Use(GinRequireScope("admin"))
 
 	handlerCalled := false
 	router.GET("/test", func(c *gin.Context) {
 		handlerCalled = true
-		ctxClaims, ok := authclient.ClaimsFromContext(c.Request.Context())
+		ctxClaims, ok := ClaimsFromContext(c.Request.Context())
 		assert.True(t, ok)
 		assert.Equal(t, "noop-chain", ctxClaims.ClientID)
 	})
@@ -1081,20 +1070,20 @@ func TestMiddlewareChain_NoopAuth_RequireScope(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestMiddlewareChain_NoopAuth_NoopScope(t *testing.T) {
-	defaultClaims := &authclient.Claims{
+func TestGinMiddlewareChain_NoopAuth_NoopScope(t *testing.T) {
+	defaultClaims := &Claims{
 		ClientID: "noop-full",
 		Scopes:   []string{"dev"},
 	}
 
 	router := gin.New()
-	router.Use(NoopAuth(defaultClaims))
-	router.Use(NoopScope())
+	router.Use(GinNoopAuth(defaultClaims))
+	router.Use(GinNoopScope())
 
 	handlerCalled := false
 	router.GET("/test", func(c *gin.Context) {
 		handlerCalled = true
-		ctxClaims, ok := authclient.ClaimsFromContext(c.Request.Context())
+		ctxClaims, ok := ClaimsFromContext(c.Request.Context())
 		assert.True(t, ok)
 		assert.Equal(t, "noop-full", ctxClaims.ClientID)
 	})
@@ -1109,18 +1098,18 @@ func TestMiddlewareChain_NoopAuth_NoopScope(t *testing.T) {
 
 // --- QA-Generated Tests (Step 7) ---
 
-func TestBearerAuth_MaxLengthTokenAccepted(t *testing.T) {
-	exactToken := strings.Repeat("a", authclient.MaxBearerTokenLength)
-	claims := &authclient.Claims{ClientID: "boundary-test"}
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, token string) (*authclient.Claims, error) {
-			assert.Len(t, token, authclient.MaxBearerTokenLength)
+func TestGinBearerAuth_MaxLengthTokenAccepted(t *testing.T) {
+	exactToken := strings.Repeat("a", MaxBearerTokenLength)
+	claims := &Claims{ClientID: "boundary-test"}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
+			assert.Len(t, token, MaxBearerTokenLength)
 			return claims, nil
 		},
 	}
 
 	router := gin.New()
-	router.Use(BearerAuth(validator))
+	router.Use(GinBearerAuth(validator))
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
 
@@ -1133,30 +1122,30 @@ func TestBearerAuth_MaxLengthTokenAccepted(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestBearerAuth_WhitespaceOnlyTokenEmpty(t *testing.T) {
-	validator := &mockValidator{}
-	mw := BearerAuth(validator)
+func TestGinBearerAuth_WhitespaceOnlyTokenEmpty(t *testing.T) {
+	validator := &mockTokenValidator{}
+	mw := GinBearerAuth(validator)
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	c.Request.Header.Set("Authorization", "Bearer    ")
 	mw(c)
 
 	assert.True(t, c.IsAborted())
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_request", resp.Error)
 	assert.Equal(t, "Empty bearer token", resp.ErrorDescription)
 }
 
-func TestBearerAuth_WWWAuthenticateHeader_InvalidToken(t *testing.T) {
-	validator := &mockValidator{
-		ValidateTokenFunc: func(_ context.Context, _ string) (*authclient.Claims, error) {
-			return nil, authclient.ErrTokenInvalid
+func TestGinBearerAuth_WWWAuthenticateHeader_InvalidToken(t *testing.T) {
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return nil, ErrTokenInvalid
 		},
 	}
-	mw := BearerAuth(validator)
+	mw := GinBearerAuth(validator)
 
-	c, w := newTestContext()
+	c, w := newGinTestContext()
 	c.Request.Header.Set("Authorization", "Bearer bad-token")
 	mw(c)
 
@@ -1166,13 +1155,13 @@ func TestBearerAuth_WWWAuthenticateHeader_InvalidToken(t *testing.T) {
 	assert.Contains(t, wwwAuth, `error_description="Token validation failed"`)
 }
 
-func TestRequireScope_WrongTypeInContext(t *testing.T) {
+func TestGinRequireScope_WrongTypeInContext(t *testing.T) {
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", "not-a-claims-pointer")
 		c.Next()
 	})
-	router.Use(RequireScope("read"))
+	router.Use(GinRequireScope("read"))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1180,18 +1169,18 @@ func TestRequireScope_WrongTypeInContext(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_token", resp.Error)
 	assert.Equal(t, "Missing authentication context", resp.ErrorDescription)
 }
 
-func TestRequireScope_NilClaimsInContext(t *testing.T) {
+func TestGinRequireScope_NilClaimsInContext(t *testing.T) {
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Set("auth_claims", (*authclient.Claims)(nil))
+		c.Set("auth_claims", (*Claims)(nil))
 		c.Next()
 	})
-	router.Use(RequireScope("read"))
+	router.Use(GinRequireScope("read"))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1199,17 +1188,17 @@ func TestRequireScope_NilClaimsInContext(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_token", resp.Error)
 }
 
-func TestRequireAnyScope_WrongTypeInContext(t *testing.T) {
+func TestGinRequireAnyScope_WrongTypeInContext(t *testing.T) {
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", 42)
 		c.Next()
 	})
-	router.Use(RequireAnyScope([]string{"read"}))
+	router.Use(GinRequireAnyScope([]string{"read"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1217,17 +1206,17 @@ func TestRequireAnyScope_WrongTypeInContext(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_token", resp.Error)
 }
 
-func TestRequireAnyScope_NilClaimsInContext(t *testing.T) {
+func TestGinRequireAnyScope_NilClaimsInContext(t *testing.T) {
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Set("auth_claims", (*authclient.Claims)(nil))
+		c.Set("auth_claims", (*Claims)(nil))
 		c.Next()
 	})
-	router.Use(RequireAnyScope([]string{"read"}))
+	router.Use(GinRequireAnyScope([]string{"read"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1235,19 +1224,19 @@ func TestRequireAnyScope_NilClaimsInContext(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_token", resp.Error)
 }
 
-func TestRequireAnyScope_CustomClaimsKey(t *testing.T) {
-	claims := &authclient.Claims{Scopes: []string{"admin"}}
+func TestGinRequireAnyScope_CustomClaimsKey(t *testing.T) {
+	claims := &Claims{Scopes: []string{"admin"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("custom_key", claims)
 		c.Next()
 	})
-	router.Use(RequireAnyScope([]string{"admin", "write"}, WithScopeClaimsKey("custom_key")))
+	router.Use(GinRequireAnyScope([]string{"admin", "write"}, WithGinScopeClaimsKey("custom_key")))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -1260,14 +1249,14 @@ func TestRequireAnyScope_CustomClaimsKey(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestNoopAuth_DeepCopyAudience(t *testing.T) {
-	defaultClaims := &authclient.Claims{
+func TestGinNoopAuth_DeepCopyAudience(t *testing.T) {
+	defaultClaims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Audience: jwt.ClaimStrings{"aud1", "aud2"},
 		},
 		ClientID: "audience-test",
 	}
-	noopMw := NoopAuth(defaultClaims)
+	noopMw := GinNoopAuth(defaultClaims)
 
 	router := gin.New()
 	router.Use(noopMw)
@@ -1276,7 +1265,7 @@ func TestNoopAuth_DeepCopyAudience(t *testing.T) {
 	router.GET("/test", func(c *gin.Context) {
 		requestNum++
 		val, _ := c.Get("auth_claims")
-		claims := val.(*authclient.Claims)
+		claims := val.(*Claims)
 		if requestNum == 1 {
 			// Mutate audience on first request
 			claims.Audience = append(claims.Audience, "mutated")
@@ -1298,16 +1287,16 @@ func TestNoopAuth_DeepCopyAudience(t *testing.T) {
 	assert.Equal(t, jwt.ClaimStrings{"aud1", "aud2"}, defaultClaims.Audience)
 }
 
-func TestNoopAuth_ScopeKeyMismatch_Returns401(t *testing.T) {
-	defaultClaims := &authclient.Claims{
+func TestGinNoopAuth_ScopeKeyMismatch_Returns401(t *testing.T) {
+	defaultClaims := &Claims{
 		ClientID: "mismatch-test",
 		Scopes:   []string{"read"},
 	}
 
 	router := gin.New()
-	router.Use(NoopAuth(defaultClaims))
-	// NoopAuth stores under "auth_claims", but scope looks under "custom_key"
-	router.Use(RequireScope("read", WithScopeClaimsKey("custom_key")))
+	router.Use(GinNoopAuth(defaultClaims))
+	// GinNoopAuth stores under "auth_claims", but scope looks under "custom_key"
+	router.Use(GinRequireScope("read", WithGinScopeClaimsKey("custom_key")))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -1318,24 +1307,24 @@ func TestNoopAuth_ScopeKeyMismatch_Returns401(t *testing.T) {
 
 	assert.False(t, called, "handler must NOT execute when claims key mismatches")
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_token", resp.Error)
 }
 
 // --- Helper / Edge Case Tests ---
 
-func TestDefaultErrorHandler_EmptyDescription(t *testing.T) {
-	c, w := newTestContext()
-	defaultErrorHandler(c, http.StatusUnauthorized, "invalid_request", "")
+func TestGinDefaultErrorHandler_EmptyDescription(t *testing.T) {
+	c, w := newGinTestContext()
+	ginDefaultErrorHandler(c, http.StatusUnauthorized, "invalid_request", "")
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	wwwAuth := w.Header().Get("WWW-Authenticate")
 	assert.Contains(t, wwwAuth, `error_description=""`)
 }
 
-func TestBearerAuth_POSTMethodRejected(t *testing.T) {
-	validator := &mockValidator{}
-	mw := BearerAuth(validator)
+func TestGinBearerAuth_POSTMethodRejected(t *testing.T) {
+	validator := &mockTokenValidator{}
+	mw := GinBearerAuth(validator)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -1344,16 +1333,6 @@ func TestBearerAuth_POSTMethodRejected(t *testing.T) {
 
 	assert.True(t, c.IsAborted())
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	resp := parseErrorResponse(t, w)
+	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "invalid_request", resp.Error)
-}
-
-// --- escapeQuotedString Tests ---
-
-func TestEscapeQuotedString(t *testing.T) {
-	assert.Equal(t, "simple", escapeQuotedString("simple"))
-	assert.Equal(t, `with\"quote`, escapeQuotedString(`with"quote`))
-	assert.Equal(t, `with\\backslash`, escapeQuotedString(`with\backslash`))
-	assert.Equal(t, `both\"and\\`, escapeQuotedString(`both"and\`))
-	assert.Equal(t, "", escapeQuotedString(""))
 }

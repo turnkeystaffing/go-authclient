@@ -599,7 +599,7 @@ func TestValidateToken_Introspection_FallbackOnNetworkError(t *testing.T) {
 
 	fallbackCalled := false
 	mockFallback := &mockTokenValidator{
-		validateFunc: func(_ context.Context, token string) (*Claims, error) {
+		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			fallbackCalled = true
 			return &Claims{ClientID: "fallback-service", UserID: "fallback-user"}, nil
 		},
@@ -751,7 +751,7 @@ func TestValidateToken_Introspection_FallbackNotTriggeredOnHTTP500(t *testing.T)
 
 	fallbackCalled := false
 	mockFallback := &mockTokenValidator{
-		validateFunc: func(_ context.Context, token string) (*Claims, error) {
+		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			fallbackCalled = true
 			return &Claims{}, nil
 		},
@@ -784,7 +784,7 @@ func TestValidateToken_Introspection_FallbackNotTriggeredOnInactive(t *testing.T
 
 	fallbackCalled := false
 	mockFallback := &mockTokenValidator{
-		validateFunc: func(_ context.Context, _ string) (*Claims, error) {
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			fallbackCalled = true
 			return &Claims{}, nil
 		},
@@ -829,16 +829,6 @@ func TestErrTokenInactive_WrapsErrTokenInvalid(t *testing.T) {
 }
 
 // --- Compile-time interface assertions are in introspection_client.go ---
-
-// --- mockTokenValidator for fallback tests ---
-
-type mockTokenValidator struct {
-	validateFunc func(ctx context.Context, token string) (*Claims, error)
-}
-
-func (m *mockTokenValidator) ValidateToken(ctx context.Context, token string) (*Claims, error) {
-	return m.validateFunc(ctx, token)
-}
 
 // --- ttlCapturingCache wraps IntrospectionCache to capture TTL values ---
 

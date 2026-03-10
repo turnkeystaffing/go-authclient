@@ -23,7 +23,6 @@ import (
 var (
 	_ TokenProvider = (*OAuthTokenProvider)(nil)
 	_ io.Closer     = (*OAuthTokenProvider)(nil)
-	_ TokenProvider = (*StaticTokenProvider)(nil)
 )
 
 // OAuthTokenProviderConfig configures the OAuth client_credentials token provider.
@@ -394,20 +393,4 @@ func scopeSetsEqual(a, b string) bool {
 		}
 	}
 	return true
-}
-
-// StaticTokenProvider returns a fixed token string on every call.
-// Useful for testing and scenarios where tokens are managed externally.
-type StaticTokenProvider struct {
-	token string
-}
-
-// NewStaticTokenProvider creates a TokenProvider that always returns the given token.
-func NewStaticTokenProvider(token string) *StaticTokenProvider {
-	return &StaticTokenProvider{token: token}
-}
-
-// Token returns the static token.
-func (p *StaticTokenProvider) Token(_ context.Context) (string, error) {
-	return p.token, nil
 }

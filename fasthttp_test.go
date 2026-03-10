@@ -14,15 +14,6 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-// fasthttpMockValidator implements TokenValidator with a func field for test control.
-type fasthttpMockValidator struct {
-	ValidateTokenFunc func(ctx context.Context, token string) (*Claims, error)
-}
-
-func (m *fasthttpMockValidator) ValidateToken(ctx context.Context, token string) (*Claims, error) {
-	return m.ValidateTokenFunc(ctx, token)
-}
-
 // helper to create a fasthttp.RequestCtx with an Authorization header.
 func newRequestCtx(authHeader string) *fasthttp.RequestCtx {
 	ctx := &fasthttp.RequestCtx{}
@@ -43,7 +34,7 @@ func parseErrorResponse(t *testing.T, ctx *fasthttp.RequestCtx) errorResponse {
 // --- BearerAuth Tests ---
 
 func TestFastHTTPBearerAuth_MissingAuthHeader(t *testing.T) {
-	validator := &fasthttpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := FastHTTPBearerAuth(validator)
 
 	ctx := newRequestCtx("")
@@ -59,7 +50,7 @@ func TestFastHTTPBearerAuth_MissingAuthHeader(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_InvalidFormat(t *testing.T) {
-	validator := &fasthttpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := FastHTTPBearerAuth(validator)
 
 	ctx := newRequestCtx("Basic dXNlcjpwYXNz")
@@ -74,7 +65,7 @@ func TestFastHTTPBearerAuth_InvalidFormat(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_EmptyToken(t *testing.T) {
-	validator := &fasthttpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := FastHTTPBearerAuth(validator)
 
 	ctx := newRequestCtx("Bearer ")
@@ -93,7 +84,7 @@ func TestFastHTTPBearerAuth_ValidToken(t *testing.T) {
 		ClientID: "test-client-uuid",
 		Scopes:   []string{"read", "write"},
 	}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "valid-token-123", token)
 			return expectedClaims, nil
@@ -121,7 +112,7 @@ func TestFastHTTPBearerAuth_ValidToken_ContextBridge(t *testing.T) {
 		ClientID: "bridge-client",
 		Scopes:   []string{"admin"},
 	}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return expectedClaims, nil
 		},
@@ -139,7 +130,7 @@ func TestFastHTTPBearerAuth_ValidToken_ContextBridge(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_InvalidToken(t *testing.T) {
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return nil, ErrTokenInvalid
 		},
@@ -165,7 +156,7 @@ func TestFastHTTPBearerAuth_NilValidatorPanics(t *testing.T) {
 
 func TestFastHTTPBearerAuth_CustomClaimsKey(t *testing.T) {
 	claims := &Claims{ClientID: "custom-key-client"}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
@@ -181,7 +172,7 @@ func TestFastHTTPBearerAuth_CustomClaimsKey(t *testing.T) {
 
 func TestFastHTTPBearerAuth_CustomClientIDKey(t *testing.T) {
 	claims := &Claims{ClientID: "custom-uuid"}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
@@ -197,7 +188,7 @@ func TestFastHTTPBearerAuth_CustomClientIDKey(t *testing.T) {
 
 func TestFastHTTPBearerAuth_CustomContextKey(t *testing.T) {
 	claims := &Claims{ClientID: "ctx-client"}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
@@ -215,7 +206,7 @@ func TestFastHTTPBearerAuth_CustomContextKey(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_CustomErrorHandler(t *testing.T) {
-	validator := &fasthttpMockValidator{}
+	validator := &mockTokenValidator{}
 	customCalled := false
 	mw := FastHTTPBearerAuth(validator, WithErrorHandler(func(ctx *fasthttp.RequestCtx, statusCode int, errCode, errDesc string) {
 		customCalled = true
@@ -232,7 +223,7 @@ func TestFastHTTPBearerAuth_CustomErrorHandler(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_NilErrorHandlerUsesDefault(t *testing.T) {
-	validator := &fasthttpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := FastHTTPBearerAuth(validator, WithErrorHandler(nil))
 
 	ctx := newRequestCtx("")
@@ -244,7 +235,7 @@ func TestFastHTTPBearerAuth_NilErrorHandlerUsesDefault(t *testing.T) {
 
 func TestFastHTTPBearerAuth_LowercaseBearer(t *testing.T) {
 	claims := &Claims{ClientID: "case-test"}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "my-token", token)
 			return claims, nil
@@ -261,7 +252,7 @@ func TestFastHTTPBearerAuth_LowercaseBearer(t *testing.T) {
 
 func TestFastHTTPBearerAuth_UppercaseBearer(t *testing.T) {
 	claims := &Claims{ClientID: "case-test"}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "my-token", token)
 			return claims, nil
@@ -295,7 +286,7 @@ func TestFastHTTPBearerAuth_EmptyContextKeyPanics(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_ErrorResponseJSON(t *testing.T) {
-	validator := &fasthttpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := FastHTTPBearerAuth(validator)
 
 	ctx := newRequestCtx("")
@@ -546,7 +537,7 @@ func TestFastHTTPRequireAnyScope_CustomClaimsKey(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_ValidatorReturnsNilClaimsNilError(t *testing.T) {
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return nil, nil // Edge case: nil claims with no error
 		},
@@ -565,7 +556,7 @@ func TestFastHTTPBearerAuth_ValidatorReturnsNilClaimsNilError(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_ShortAuthHeader(t *testing.T) {
-	validator := &fasthttpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := FastHTTPBearerAuth(validator)
 
 	ctx := newRequestCtx("Bear")
@@ -581,7 +572,7 @@ func TestFastHTTPBearerAuth_ShortAuthHeader(t *testing.T) {
 
 func TestFastHTTPBearerAuth_AllCustomOptionsCombined(t *testing.T) {
 	claims := &Claims{ClientID: "combo-client", Scopes: []string{"admin"}}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
@@ -611,7 +602,7 @@ func TestFastHTTPBearerAuth_AllCustomOptionsCombined(t *testing.T) {
 
 func TestFastHTTPBearerAuth_MiddlewareChain(t *testing.T) {
 	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read", "write"}}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
@@ -633,7 +624,7 @@ func TestFastHTTPBearerAuth_MiddlewareChain(t *testing.T) {
 
 func TestFastHTTPBearerAuth_MiddlewareChain_ScopeDenied(t *testing.T) {
 	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read"}}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
@@ -722,7 +713,7 @@ func TestFastHTTPNoopAuth_DeepCopyNumericDates(t *testing.T) {
 
 func TestFastHTTPBearerAuth_MixedCaseBearer(t *testing.T) {
 	claims := &Claims{ClientID: "mixed-case"}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "my-token", token)
 			return claims, nil
@@ -740,7 +731,7 @@ func TestFastHTTPBearerAuth_MixedCaseBearer(t *testing.T) {
 // --- Security Fix Tests ---
 
 func TestFastHTTPBearerAuth_WWWAuthenticateHeader_401(t *testing.T) {
-	validator := &fasthttpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := FastHTTPBearerAuth(validator)
 
 	ctx := newRequestCtx("")
@@ -754,7 +745,7 @@ func TestFastHTTPBearerAuth_WWWAuthenticateHeader_401(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_WWWAuthenticateHeader_InvalidToken(t *testing.T) {
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return nil, ErrTokenInvalid
 		},
@@ -780,7 +771,7 @@ func TestFastHTTPRequireScope_WWWAuthenticateHeader_403(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_OversizedToken(t *testing.T) {
-	validator := &fasthttpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := FastHTTPBearerAuth(validator)
 
 	// Create a token larger than maxBearerTokenLength (4096)
@@ -798,7 +789,7 @@ func TestFastHTTPBearerAuth_OversizedToken(t *testing.T) {
 
 func TestFastHTTPBearerAuth_MaxLengthTokenAccepted(t *testing.T) {
 	claims := &Claims{ClientID: "max-len"}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
@@ -816,7 +807,7 @@ func TestFastHTTPBearerAuth_MaxLengthTokenAccepted(t *testing.T) {
 
 func TestFastHTTPBearerAuth_TokenWhitespaceTrimmed(t *testing.T) {
 	claims := &Claims{ClientID: "trim-test"}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "my-token", token, "token should be trimmed of whitespace")
 			return claims, nil
@@ -832,7 +823,7 @@ func TestFastHTTPBearerAuth_TokenWhitespaceTrimmed(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_WhitespaceOnlyTokenEmpty(t *testing.T) {
-	validator := &fasthttpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := FastHTTPBearerAuth(validator)
 
 	ctx := newRequestCtx("Bearer    ")
@@ -921,7 +912,7 @@ func TestFastHTTPScopeClaimsKeyEmptyPanics(t *testing.T) {
 
 func TestFastHTTPBearerAuth_ValidatorReceivesRequestCtx(t *testing.T) {
 	var receivedCtx context.Context
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(ctx context.Context, _ string) (*Claims, error) {
 			receivedCtx = ctx
 			return &Claims{ClientID: "ctx-test"}, nil
@@ -938,7 +929,7 @@ func TestFastHTTPBearerAuth_ValidatorReceivesRequestCtx(t *testing.T) {
 
 func TestFastHTTPBearerAuth_StoresExactClaimsPointer(t *testing.T) {
 	expectedClaims := &Claims{ClientID: "pointer-test"}
-	validator := &fasthttpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return expectedClaims, nil
 		},

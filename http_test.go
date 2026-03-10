@@ -16,15 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// httpMockValidator implements TokenValidator with a func field for test control.
-type httpMockValidator struct {
-	ValidateTokenFunc func(ctx context.Context, token string) (*Claims, error)
-}
-
-func (m *httpMockValidator) ValidateToken(ctx context.Context, token string) (*Claims, error) {
-	return m.ValidateTokenFunc(ctx, token)
-}
-
 // helper to parse error response body from httptest.ResponseRecorder.
 func parseHTTPErrorResponse(t *testing.T, rec *httptest.ResponseRecorder) errorResponse {
 	t.Helper()
@@ -36,7 +27,7 @@ func parseHTTPErrorResponse(t *testing.T, rec *httptest.ResponseRecorder) errorR
 // --- HTTPBearerAuth Tests ---
 
 func TestHTTPBearerAuth_MissingAuthHeader(t *testing.T) {
-	validator := &httpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := HTTPBearerAuth(validator)
 
 	rec := httptest.NewRecorder()
@@ -53,7 +44,7 @@ func TestHTTPBearerAuth_MissingAuthHeader(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_InvalidFormat(t *testing.T) {
-	validator := &httpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := HTTPBearerAuth(validator)
 
 	rec := httptest.NewRecorder()
@@ -70,7 +61,7 @@ func TestHTTPBearerAuth_InvalidFormat(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_EmptyToken(t *testing.T) {
-	validator := &httpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := HTTPBearerAuth(validator)
 
 	rec := httptest.NewRecorder()
@@ -87,7 +78,7 @@ func TestHTTPBearerAuth_EmptyToken(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_OversizedToken(t *testing.T) {
-	validator := &httpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := HTTPBearerAuth(validator)
 
 	bigToken := strings.Repeat("a", MaxBearerTokenLength+1)
@@ -106,7 +97,7 @@ func TestHTTPBearerAuth_OversizedToken(t *testing.T) {
 
 func TestHTTPBearerAuth_MaxLengthTokenAccepted(t *testing.T) {
 	claims := &Claims{ClientID: "max-len"}
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
@@ -129,7 +120,7 @@ func TestHTTPBearerAuth_ValidToken(t *testing.T) {
 		ClientID: "test-client-uuid",
 		Scopes:   []string{"read", "write"},
 	}
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "valid-token-123", token)
 			return expectedClaims, nil
@@ -156,7 +147,7 @@ func TestHTTPBearerAuth_ClaimsRetrievableViaContext(t *testing.T) {
 		ClientID: "ctx-client",
 		Scopes:   []string{"admin"},
 	}
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return expectedClaims, nil
 		},
@@ -174,7 +165,7 @@ func TestHTTPBearerAuth_ClaimsRetrievableViaContext(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_InvalidToken(t *testing.T) {
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return nil, ErrTokenInvalid
 		},
@@ -195,7 +186,7 @@ func TestHTTPBearerAuth_InvalidToken(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_ValidatorReturnsNilClaimsNilError(t *testing.T) {
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return nil, nil
 		},
@@ -215,7 +206,7 @@ func TestHTTPBearerAuth_ValidatorReturnsNilClaimsNilError(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_CustomErrorHandler(t *testing.T) {
-	validator := &httpMockValidator{}
+	validator := &mockTokenValidator{}
 	customCalled := false
 	mw := HTTPBearerAuth(validator, WithHTTPErrorHandler(func(w http.ResponseWriter, _ *http.Request, statusCode int, errCode, errDesc string) {
 		customCalled = true
@@ -233,7 +224,7 @@ func TestHTTPBearerAuth_CustomErrorHandler(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_NilErrorHandlerUsesDefault(t *testing.T) {
-	validator := &httpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := HTTPBearerAuth(validator, WithHTTPErrorHandler(nil))
 
 	rec := httptest.NewRecorder()
@@ -251,7 +242,7 @@ func TestHTTPBearerAuth_NilValidatorPanics(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_ContentTypeJSON(t *testing.T) {
-	validator := &httpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := HTTPBearerAuth(validator)
 
 	rec := httptest.NewRecorder()
@@ -262,7 +253,7 @@ func TestHTTPBearerAuth_ContentTypeJSON(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_WWWAuthenticateHeader_401(t *testing.T) {
-	validator := &httpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := HTTPBearerAuth(validator)
 
 	rec := httptest.NewRecorder()
@@ -277,7 +268,7 @@ func TestHTTPBearerAuth_WWWAuthenticateHeader_401(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_WWWAuthenticateHeader_InvalidToken(t *testing.T) {
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return nil, ErrTokenInvalid
 		},
@@ -294,7 +285,7 @@ func TestHTTPBearerAuth_WWWAuthenticateHeader_InvalidToken(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_ErrorResponseJSON(t *testing.T) {
-	validator := &httpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := HTTPBearerAuth(validator)
 
 	rec := httptest.NewRecorder()
@@ -312,7 +303,7 @@ func TestHTTPBearerAuth_ErrorResponseJSON(t *testing.T) {
 
 func TestHTTPBearerAuth_LowercaseBearer(t *testing.T) {
 	claims := &Claims{ClientID: "case-test"}
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "my-token", token)
 			return claims, nil
@@ -331,7 +322,7 @@ func TestHTTPBearerAuth_LowercaseBearer(t *testing.T) {
 
 func TestHTTPBearerAuth_UppercaseBearer(t *testing.T) {
 	claims := &Claims{ClientID: "case-test"}
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "my-token", token)
 			return claims, nil
@@ -350,7 +341,7 @@ func TestHTTPBearerAuth_UppercaseBearer(t *testing.T) {
 
 func TestHTTPBearerAuth_MixedCaseBearer(t *testing.T) {
 	claims := &Claims{ClientID: "mixed-case"}
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "my-token", token)
 			return claims, nil
@@ -369,7 +360,7 @@ func TestHTTPBearerAuth_MixedCaseBearer(t *testing.T) {
 
 func TestHTTPBearerAuth_TokenWhitespaceTrimmed(t *testing.T) {
 	claims := &Claims{ClientID: "trim-test"}
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
 			assert.Equal(t, "my-token", token, "token should be trimmed of whitespace")
 			return claims, nil
@@ -387,7 +378,7 @@ func TestHTTPBearerAuth_TokenWhitespaceTrimmed(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_WhitespaceOnlyTokenEmpty(t *testing.T) {
-	validator := &httpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := HTTPBearerAuth(validator)
 
 	rec := httptest.NewRecorder()
@@ -404,7 +395,7 @@ func TestHTTPBearerAuth_WhitespaceOnlyTokenEmpty(t *testing.T) {
 }
 
 func TestHTTPBearerAuth_ShortAuthHeader(t *testing.T) {
-	validator := &httpMockValidator{}
+	validator := &mockTokenValidator{}
 	mw := HTTPBearerAuth(validator)
 
 	rec := httptest.NewRecorder()
@@ -423,7 +414,7 @@ func TestHTTPBearerAuth_ShortAuthHeader(t *testing.T) {
 func TestHTTPBearerAuth_ValidatorReceivesRequestContext(t *testing.T) {
 	type testCtxKey struct{}
 	var receivedCtx context.Context
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(ctx context.Context, _ string) (*Claims, error) {
 			receivedCtx = ctx
 			return &Claims{ClientID: "ctx-test"}, nil
@@ -886,7 +877,7 @@ func TestHTTPNoopScope_ReturnsExactHandler(t *testing.T) {
 
 func TestHTTPMiddlewareChain_BearerAuth_RequireScope(t *testing.T) {
 	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read", "write"}}
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
@@ -910,7 +901,7 @@ func TestHTTPMiddlewareChain_BearerAuth_RequireScope(t *testing.T) {
 
 func TestHTTPMiddlewareChain_BearerAuth_RequireScope_Denied(t *testing.T) {
 	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read"}}
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},
@@ -934,7 +925,7 @@ func TestHTTPMiddlewareChain_BearerAuth_RequireScope_Denied(t *testing.T) {
 
 func TestHTTPMiddlewareChain_BearerAuth_RequireAnyScope(t *testing.T) {
 	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read", "write"}}
-	validator := &httpMockValidator{
+	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
 		},

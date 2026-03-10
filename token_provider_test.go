@@ -751,38 +751,6 @@ func TestClose_ClearsToken(t *testing.T) {
 	}
 }
 
-// --- AC-6: StaticTokenProvider Tests ---
-
-func TestStaticTokenProvider_ReturnsFixedToken(t *testing.T) {
-	p := NewStaticTokenProvider("my-static-token")
-	tok, err := p.Token(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tok != "my-static-token" {
-		t.Fatalf("expected my-static-token, got %s", tok)
-	}
-}
-
-func TestStaticTokenProvider_ConcurrentSafety(t *testing.T) {
-	p := NewStaticTokenProvider("concurrent-token")
-	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			tok, err := p.Token(context.Background())
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-			if tok != "concurrent-token" {
-				t.Errorf("expected concurrent-token, got %s", tok)
-			}
-		}()
-	}
-	wg.Wait()
-}
-
 // --- AC-7: OTel HTTP Transport ---
 
 func TestNewOAuthTokenProvider_OTelTransport(t *testing.T) {
@@ -1155,19 +1123,6 @@ func TestToken_RefreshAtThreshold(t *testing.T) {
 	}
 }
 
-// --- QA: StaticTokenProvider Edge Case ---
-
-func TestStaticTokenProvider_EmptyString(t *testing.T) {
-	p := NewStaticTokenProvider("")
-	tok, err := p.Token(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tok != "" {
-		t.Fatalf("expected empty token, got %q", tok)
-	}
-}
-
 // --- Adversarial: maxExpiresIn Overflow Prevention ---
 
 func TestToken_ExpiresInExceedsMax(t *testing.T) {
@@ -1379,7 +1334,6 @@ func TestCompileTimeAssertions(t *testing.T) {
 	// Including a runtime test for documentation purposes.
 	var _ TokenProvider = (*OAuthTokenProvider)(nil)
 	var _ io.Closer = (*OAuthTokenProvider)(nil)
-	var _ TokenProvider = (*StaticTokenProvider)(nil)
 }
 
 // --- Helpers ---

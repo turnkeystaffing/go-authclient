@@ -32,21 +32,13 @@ func setupTestOTel(t *testing.T) (*tracesdk.TracerProvider, *tracetest.InMemoryE
 	return tp, spanExporter, mp, metricReader
 }
 
-// mockValidator is a test double for TokenValidator.
-type mockValidator struct {
-	claims *Claims
-	err    error
-}
-
-func (m *mockValidator) ValidateToken(_ context.Context, _ string) (*Claims, error) {
-	return m.claims, m.err
-}
-
 func TestInstrumentedValidator_Success(t *testing.T) {
 	tp, exporter, mp, reader := setupTestOTel(t)
 
-	inner := &mockValidator{
-		claims: &Claims{ClientID: "test-client", Scopes: []string{"read", "write"}},
+	inner := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return &Claims{ClientID: "test-client", Scopes: []string{"read", "write"}}, nil
+		},
 	}
 
 	v := NewInstrumentedValidator(inner, WithTracerProvider(tp), WithMeterProvider(mp))
@@ -76,7 +68,11 @@ func TestInstrumentedValidator_Success(t *testing.T) {
 func TestInstrumentedValidator_Error(t *testing.T) {
 	tp, exporter, mp, reader := setupTestOTel(t)
 
-	inner := &mockValidator{err: ErrTokenExpired}
+	inner := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return nil, ErrTokenExpired
+		},
+	}
 	v := NewInstrumentedValidator(inner, WithTracerProvider(tp), WithMeterProvider(mp))
 	claims, err := v.ValidateToken(context.Background(), "token")
 
@@ -100,7 +96,11 @@ func TestInstrumentedValidator_TransparentPassthrough(t *testing.T) {
 	tp, _, mp, _ := setupTestOTel(t)
 
 	expectedClaims := &Claims{ClientID: "abc", Scopes: []string{"s1"}}
-	inner := &mockValidator{claims: expectedClaims}
+	inner := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return expectedClaims, nil
+		},
+	}
 	v := NewInstrumentedValidator(inner, WithTracerProvider(tp), WithMeterProvider(mp))
 
 	claims, err := v.ValidateToken(context.Background(), "token")
@@ -155,7 +155,11 @@ func TestClassifyValidationError_InactiveBeforeInvalid(t *testing.T) {
 func TestInstrumentedValidator_ErrorRecordedInSpan(t *testing.T) {
 	tp, exporter, mp, _ := setupTestOTel(t)
 
-	inner := &mockValidator{err: ErrTokenMalformed}
+	inner := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return nil, ErrTokenMalformed
+		},
+	}
 	v := NewInstrumentedValidator(inner, WithTracerProvider(tp), WithMeterProvider(mp))
 	_, _ = v.ValidateToken(context.Background(), "token")
 
@@ -176,7 +180,11 @@ func TestInstrumentedValidator_ErrorRecordedInSpan(t *testing.T) {
 func TestInstrumentedValidator_DurationRecorded(t *testing.T) {
 	tp, _, mp, reader := setupTestOTel(t)
 
-	inner := &mockValidator{claims: &Claims{ClientID: "c"}}
+	inner := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return &Claims{ClientID: "c"}, nil
+		},
+	}
 	v := NewInstrumentedValidator(inner, WithTracerProvider(tp), WithMeterProvider(mp))
 	_, _ = v.ValidateToken(context.Background(), "token")
 
@@ -187,7 +195,11 @@ func TestInstrumentedValidator_DurationRecorded(t *testing.T) {
 func TestInstrumentedValidator_ConcurrentUse(t *testing.T) {
 	tp, _, mp, _ := setupTestOTel(t)
 
-	inner := &mockValidator{claims: &Claims{ClientID: "c", Scopes: []string{"read"}}}
+	inner := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return &Claims{ClientID: "c", Scopes: []string{"read"}}, nil
+		},
+	}
 	v := NewInstrumentedValidator(inner, WithTracerProvider(tp), WithMeterProvider(mp))
 
 	var wg sync.WaitGroup
@@ -205,7 +217,11 @@ func TestInstrumentedValidator_NilClaimsSuccess(t *testing.T) {
 	tp, exporter, mp, reader := setupTestOTel(t)
 
 	// Inner returns (nil, nil) — violates contract but must not panic (F2 nil guard).
-	inner := &mockValidator{claims: nil, err: nil}
+	inner := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return nil, nil
+		},
+	}
 	v := NewInstrumentedValidator(inner, WithTracerProvider(tp), WithMeterProvider(mp))
 
 	claims, err := v.ValidateToken(context.Background(), "token")
@@ -234,7 +250,11 @@ func TestInstrumentedValidator_OversizedClientIDTruncated(t *testing.T) {
 	for i := range oversized {
 		oversized[i] = 'X'
 	}
-	inner := &mockValidator{claims: &Claims{ClientID: string(oversized), Scopes: []string{"read"}}}
+	inner := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return &Claims{ClientID: string(oversized), Scopes: []string{"read"}}, nil
+		},
+	}
 	v := NewInstrumentedValidator(inner, WithTracerProvider(tp), WithMeterProvider(mp))
 
 	_, err := v.ValidateToken(context.Background(), "token")
@@ -260,7 +280,11 @@ func TestInstrumentedValidator_ClientIDBoundary(t *testing.T) {
 	for i := range exact {
 		exact[i] = 'A'
 	}
-	inner := &mockValidator{claims: &Claims{ClientID: string(exact), Scopes: []string{"r"}}}
+	inner := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return &Claims{ClientID: string(exact), Scopes: []string{"r"}}, nil
+		},
+	}
 	v := NewInstrumentedValidator(inner, WithTracerProvider(tp), WithMeterProvider(mp))
 	_, err := v.ValidateToken(context.Background(), "token")
 	require.NoError(t, err)
@@ -281,7 +305,11 @@ func TestInstrumentedValidator_ClientIDBoundary(t *testing.T) {
 	for i := range overBy1 {
 		overBy1[i] = 'B'
 	}
-	inner2 := &mockValidator{claims: &Claims{ClientID: string(overBy1), Scopes: []string{"r"}}}
+	inner2 := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return &Claims{ClientID: string(overBy1), Scopes: []string{"r"}}, nil
+		},
+	}
 	v2 := NewInstrumentedValidator(inner2, WithTracerProvider(tp), WithMeterProvider(mp))
 	_, err = v2.ValidateToken(context.Background(), "token")
 	require.NoError(t, err)
@@ -302,9 +330,11 @@ func TestInstrumentedValidator_SpanContextPropagated(t *testing.T) {
 	tp, _, mp, _ := setupTestOTel(t)
 
 	var capturedCtx context.Context
-	inner := &contextCapturingValidator{
-		claims:     &Claims{ClientID: "c"},
-		captureCtx: func(ctx context.Context) { capturedCtx = ctx },
+	inner := &mockTokenValidator{
+		ValidateTokenFunc: func(ctx context.Context, _ string) (*Claims, error) {
+			capturedCtx = ctx
+			return &Claims{ClientID: "c"}, nil
+		},
 	}
 	v := NewInstrumentedValidator(inner, WithTracerProvider(tp), WithMeterProvider(mp))
 
@@ -319,7 +349,11 @@ func TestInstrumentedValidator_SpanContextPropagated(t *testing.T) {
 func TestInstrumentedValidator_DurationPositive(t *testing.T) {
 	tp, _, mp, reader := setupTestOTel(t)
 
-	inner := &mockValidator{claims: &Claims{ClientID: "c"}}
+	inner := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return &Claims{ClientID: "c"}, nil
+		},
+	}
 	v := NewInstrumentedValidator(inner, WithTracerProvider(tp), WithMeterProvider(mp))
 	_, _ = v.ValidateToken(context.Background(), "token")
 
@@ -337,17 +371,6 @@ func TestInstrumentedValidator_DurationPositive(t *testing.T) {
 		}
 	}
 	t.Error("histogram authclient.validate_token.duration not found")
-}
-
-// contextCapturingValidator captures the context passed to ValidateToken.
-type contextCapturingValidator struct {
-	claims     *Claims
-	captureCtx func(context.Context)
-}
-
-func (v *contextCapturingValidator) ValidateToken(ctx context.Context, _ string) (*Claims, error) {
-	v.captureCtx(ctx)
-	return v.claims, nil
 }
 
 // --- Test helpers ---
