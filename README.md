@@ -24,7 +24,8 @@ go get github.com/turnkeystaffing/go-authclient
 
 ```go
 validator, err := authclient.NewJWKSValidator(ctx, authclient.JWKSValidatorConfig{
-    Issuer: "https://auth.example.com",
+    Issuer:   "https://auth.example.com",
+    Audience: []string{"my-service"},
     JWKS: authclient.JWKSConfig{
         Endpoint: "https://auth.example.com/.well-known/jwks.json",
     },
@@ -173,6 +174,41 @@ Endpoints:
 - `POST /token` — OAuth 2.0 token endpoint
 - `POST /introspect` — RFC 7662 introspection
 - `GET /` — HTML dashboard
+
+### Step-up authentication (sensitive operations)
+
+Use `AuthenticatedWithin` to require recent credential proof before sensitive operations. This checks the `auth_time` claim — distinct from token expiry.
+
+```go
+claims, _ := authclient.ClaimsFromContext(r.Context())
+
+// Use the auth server default (15 minutes)
+if !claims.AuthenticatedWithin(0) {
+    http.Error(w, "recent authentication required", http.StatusForbidden)
+    return
+}
+
+// Or specify a tighter window for extra-sensitive operations
+if !claims.AuthenticatedWithin(5 * time.Minute) {
+    http.Error(w, "recent authentication required", http.StatusForbidden)
+    return
+}
+```
+
+With Gin:
+
+```go
+func handleDeleteAccount(c *gin.Context) {
+    claims, _ := authclient.ClaimsFromContext(c.Request.Context())
+    if !claims.AuthenticatedWithin(0) {
+        c.JSON(http.StatusForbidden, gin.H{"error": "recent authentication required"})
+        return
+    }
+    // proceed with sensitive operation
+}
+```
+
+`AuthenticatedWithin` returns `false` when `auth_time` is absent (e.g., client_credentials tokens), so only user tokens with recent credential proof pass the check. The default of `authclient.DefaultReauthMaxAge` (15 minutes) matches the auth server's `reauth_max_age` setting.
 
 ## Context & Scope Utilities
 

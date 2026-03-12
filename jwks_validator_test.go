@@ -59,7 +59,8 @@ func TestNewJWKSValidator_NilLoggerPanics(t *testing.T) {
 
 func TestNewJWKSValidator_UnreachableEndpoint(t *testing.T) {
 	_, err := NewJWKSValidator(context.Background(), JWKSValidatorConfig{
-		Issuer: "test-issuer",
+		Issuer:   "test-issuer",
+		Audience: []string{"test-service"},
 		JWKS: JWKSConfig{
 			Endpoint:    "http://127.0.0.1:1/nonexistent",
 			HTTPTimeout: 1 * time.Second,
@@ -91,11 +92,12 @@ func TestValidateToken_ExpiredToken(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
+			Audience:  jwt.ClaimStrings{"test-service"},
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),
 		},
@@ -113,11 +115,12 @@ func TestValidateToken_WrongIssuer(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "expected-issuer", nil)
+	v := newTestValidator(t, key, kid, "expected-issuer", []string{"test-service"})
 
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "wrong-issuer",
+			Audience:  jwt.ClaimStrings{"test-service"},
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
 		ClientID: "client-wrong-iss",
@@ -156,7 +159,7 @@ func TestValidateToken_MalformedToken(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	_, err = v.ValidateToken(context.Background(), "not.a.valid.token")
 	require.Error(t, err)
@@ -168,7 +171,7 @@ func TestValidateToken_OversizedToken(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	oversized := strings.Repeat("a", MaxBearerTokenLength+1)
 	_, err = v.ValidateToken(context.Background(), oversized)
@@ -181,7 +184,7 @@ func TestValidateToken_ExactMaxSizeNotRejected(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	// Exactly MaxBearerTokenLength should NOT trigger oversized error
 	// It will fail for other reasons (malformed) but not oversized
@@ -196,11 +199,12 @@ func TestValidateToken_EmptyClientID(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
+			Audience:  jwt.ClaimStrings{"test-service"},
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
 		ClientID: "",
@@ -218,11 +222,12 @@ func TestValidateToken_MissingExpiration(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer: "test-issuer",
+			Issuer:   "test-issuer",
+			Audience: jwt.ClaimStrings{"test-service"},
 		},
 		ClientID: "client-no-exp",
 	}
@@ -240,11 +245,12 @@ func TestValidateToken_WrongSigningKey(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, servedKey, kid, "test-issuer", nil)
+	v := newTestValidator(t, servedKey, kid, "test-issuer", []string{"test-service"})
 
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
+			Audience:  jwt.ClaimStrings{"test-service"},
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
 		ClientID: "client-wrong-key",
@@ -261,7 +267,7 @@ func TestValidateToken_NoneAlgorithmRejected(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	claims := jwt.RegisteredClaims{
 		Issuer:    "test-issuer",
@@ -281,7 +287,7 @@ func TestValidateToken_HMACAlgorithmRejected(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	secret := []byte("test-hmac-secret-key-for-hs256!!")
 	claims := jwt.RegisteredClaims{
@@ -297,26 +303,27 @@ func TestValidateToken_HMACAlgorithmRejected(t *testing.T) {
 	assert.ErrorIs(t, err, ErrTokenInvalid)
 }
 
-func TestValidateToken_NoAudienceValidationWhenEmpty(t *testing.T) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-
-	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil) // no audience configured
-
-	claims := &Claims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    "test-issuer",
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+func TestNewJWKSValidator_EmptyAudienceRejected(t *testing.T) {
+	_, err := NewJWKSValidator(context.Background(), JWKSValidatorConfig{
+		Issuer:   "test-issuer",
+		Audience: nil,
+		JWKS: JWKSConfig{
+			Endpoint: "http://example.com/.well-known/jwks.json",
 		},
-		ClientID: "client-no-aud",
-		Scopes:   []string{"audit:write"},
-	}
-	tokenString := signTestToken(t, key, kid, claims)
+	}, testLogger())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "audience is required")
 
-	result, err := v.ValidateToken(context.Background(), tokenString)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"audit:write"}, result.Scopes)
+	// Also test with empty slice
+	_, err = NewJWKSValidator(context.Background(), JWKSValidatorConfig{
+		Issuer:   "test-issuer",
+		Audience: []string{},
+		JWKS: JWKSConfig{
+			Endpoint: "http://example.com/.well-known/jwks.json",
+		},
+	}, testLogger())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "audience is required")
 }
 
 func TestValidateToken_WithUserID(t *testing.T) {
@@ -324,11 +331,12 @@ func TestValidateToken_WithUserID(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
+			Audience:  jwt.ClaimStrings{"test-service"},
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
 		ClientID: "client-with-user",
@@ -348,7 +356,7 @@ func TestJWKSValidator_Close(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	err = v.Close()
 	assert.NoError(t, err)
@@ -359,7 +367,7 @@ func TestJWKSValidator_DoubleClose(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	// First close should succeed.
 	err = v.Close()
@@ -377,11 +385,12 @@ func TestValidateToken_NotYetValid(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	claims := &Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    "test-issuer",
+			Audience:  jwt.ClaimStrings{"test-service"},
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(2 * time.Hour)),
 			NotBefore: jwt.NewNumericDate(time.Now().Add(time.Hour)), // not valid yet
 		},
@@ -399,7 +408,7 @@ func TestValidateToken_EmptyToken(t *testing.T) {
 	require.NoError(t, err)
 
 	kid := fmt.Sprintf("test-key-%s", t.Name())
-	v := newTestValidator(t, key, kid, "test-issuer", nil)
+	v := newTestValidator(t, key, kid, "test-issuer", []string{"test-service"})
 
 	_, err = v.ValidateToken(context.Background(), "")
 	require.Error(t, err)

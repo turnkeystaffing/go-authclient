@@ -39,7 +39,7 @@ func init() {
 type JWKSValidatorConfig struct {
 	// Issuer is the expected token issuer (iss claim).
 	Issuer string
-	// Audience is the expected token audience (aud claim). Optional.
+	// Audience is the expected token audience (aud claim).
 	Audience []string
 	// JWKS holds the JWKS provider configuration.
 	JWKS JWKSConfig
@@ -71,6 +71,10 @@ func NewJWKSValidator(ctx context.Context, cfg JWKSValidatorConfig, logger *slog
 		return nil, fmt.Errorf("authclient: issuer is required")
 	}
 
+	if len(cfg.Audience) == 0 {
+		return nil, fmt.Errorf("authclient: audience is required")
+	}
+
 	provider, err := NewJWKSProvider(ctx, cfg.JWKS, logger)
 	if err != nil {
 		return nil, fmt.Errorf("authclient: create JWKS validator: %w", err)
@@ -96,9 +100,7 @@ func (v *JWKSValidator) ValidateToken(_ context.Context, tokenString string) (*C
 		jwt.WithIssuer(v.issuer),
 		jwt.WithExpirationRequired(),
 		jwt.WithValidMethods(cachedAllowedAlgorithmsList),
-	}
-	if len(v.audience) > 0 {
-		parserOpts = append(parserOpts, jwt.WithAudience(v.audience...))
+		jwt.WithAudience(v.audience...),
 	}
 
 	token, err := jwt.ParseWithClaims(tokenString, claims, v.provider.Keyfunc(), parserOpts...)
