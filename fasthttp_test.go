@@ -520,6 +520,26 @@ func TestFastHTTPRequireAnyScopeWildcard_NilScopesPanics(t *testing.T) {
 	})
 }
 
+func TestFastHTTPRequireScopeWildcard_CustomClaimsKey(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue("custom_claims", &Claims{Scopes: []string{"bgc:contractors:*"}})
+
+	called := false
+	FastHTTPRequireScopeWildcard("bgc:contractors:read", WithScopeClaimsKey("custom_claims"))(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.True(t, called)
+}
+
+func TestFastHTTPRequireAnyScopeWildcard_CustomClaimsKey(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue("custom_claims", &Claims{Scopes: []string{"bgc:*"}})
+
+	called := false
+	FastHTTPRequireAnyScopeWildcard([]string{"bgc:contractors:read"}, WithScopeClaimsKey("custom_claims"))(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.True(t, called)
+}
+
 func TestFastHTTPRequireAnyScopeWildcard_DefensiveScopesCopy(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
 	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"admin:*"}})

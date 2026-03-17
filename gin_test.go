@@ -1488,6 +1488,123 @@ func TestGinRequireAnyScopeWildcard_DefensiveScopesCopy(t *testing.T) {
 	assert.True(t, called, "middleware should use defensively-copied scopes")
 }
 
+func TestGinRequireScopeWildcard_CustomClaimsKey(t *testing.T) {
+	claims := &Claims{Scopes: []string{"bgc:contractors:*"}}
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("custom_key", claims)
+		c.Next()
+	})
+	router.Use(GinRequireScopeWildcard("bgc:contractors:read", WithGinScopeClaimsKey("custom_key")))
+
+	called := false
+	router.GET("/test", func(_ *gin.Context) { called = true })
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	router.ServeHTTP(w, req)
+
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestGinRequireAnyScopeWildcard_CustomClaimsKey(t *testing.T) {
+	claims := &Claims{Scopes: []string{"bgc:*"}}
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("custom_key", claims)
+		c.Next()
+	})
+	router.Use(GinRequireAnyScopeWildcard([]string{"bgc:contractors:read"}, WithGinScopeClaimsKey("custom_key")))
+
+	called := false
+	router.GET("/test", func(_ *gin.Context) { called = true })
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	router.ServeHTTP(w, req)
+
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// --- Wildcard Middleware Edge Case Tests ---
+
+func TestGinRequireScopeWildcard_WrongTypeInContext(t *testing.T) {
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("auth_claims", "not-a-claims-pointer")
+		c.Next()
+	})
+	router.Use(GinRequireScopeWildcard("read"))
+	router.GET("/test", func(_ *gin.Context) {})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	resp := parseGinErrorResponse(t, w)
+	assert.Equal(t, "invalid_token", resp.Error)
+	assert.Equal(t, "Missing authentication context", resp.ErrorDescription)
+}
+
+func TestGinRequireScopeWildcard_NilClaimsInContext(t *testing.T) {
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("auth_claims", (*Claims)(nil))
+		c.Next()
+	})
+	router.Use(GinRequireScopeWildcard("read"))
+	router.GET("/test", func(_ *gin.Context) {})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	resp := parseGinErrorResponse(t, w)
+	assert.Equal(t, "invalid_token", resp.Error)
+}
+
+func TestGinRequireAnyScopeWildcard_WrongTypeInContext(t *testing.T) {
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("auth_claims", 42)
+		c.Next()
+	})
+	router.Use(GinRequireAnyScopeWildcard([]string{"read"}))
+	router.GET("/test", func(_ *gin.Context) {})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	resp := parseGinErrorResponse(t, w)
+	assert.Equal(t, "invalid_token", resp.Error)
+}
+
+func TestGinRequireAnyScopeWildcard_NilClaimsInContext(t *testing.T) {
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("auth_claims", (*Claims)(nil))
+		c.Next()
+	})
+	router.Use(GinRequireAnyScopeWildcard([]string{"read"}))
+	router.GET("/test", func(_ *gin.Context) {})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	resp := parseGinErrorResponse(t, w)
+	assert.Equal(t, "invalid_token", resp.Error)
+}
+
 // --- Helper / Edge Case Tests ---
 
 func TestGinDefaultErrorHandler_EmptyDescription(t *testing.T) {

@@ -334,6 +334,13 @@ func TestHasAnyScopeWildcard(t *testing.T) {
 	}
 }
 
+func TestHasAnyScopeWildcard_NilAndEdgeCases(t *testing.T) {
+	assert.False(t, HasAnyScopeWildcard(nil, "admin"), "nil claims")
+	assert.False(t, HasAnyScopeWildcard(&Claims{ClientID: "c"}, "read"), "nil Scopes field")
+	assert.False(t, HasAnyScopeWildcard(&Claims{Scopes: []string{}}, "read"), "empty scopes list")
+	assert.False(t, HasAnyScopeWildcard(&Claims{Scopes: []string{"admin:*"}}, ""), "empty required scope skipped, no others")
+}
+
 func TestHasScopeWildcard_BackwardCompatibility(t *testing.T) {
 	// 2-part scopes still work with wildcard matching
 	claims := &Claims{Scopes: []string{"expenses:*", "admin:*", "users:read"}}

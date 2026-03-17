@@ -1119,6 +1119,28 @@ func TestHTTPRequireScopeWildcard_EmptyScopePanics(t *testing.T) {
 	})
 }
 
+func TestHTTPRequireScopeWildcard_CustomErrorHandler(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
+	ctx := ContextWithClaims(context.Background(), claims)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(ctx)
+
+	customCalled := false
+	scope := HTTPRequireScopeWildcard("admin", WithHTTPScopeErrorHandler(func(w http.ResponseWriter, _ *http.Request, statusCode int, errCode, errDesc string) {
+		customCalled = true
+		w.WriteHeader(statusCode)
+		_, _ = w.Write([]byte(errCode + ": " + errDesc))
+	}))
+
+	scope(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})).ServeHTTP(rec, req)
+
+	assert.True(t, customCalled)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Equal(t, "insufficient_scope: Required scope: admin", rec.Body.String())
+}
+
 func TestHTTPRequireScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
 	claims := &Claims{Scopes: []string{"read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
