@@ -1065,3 +1065,149 @@ func TestHTTPRequireAnyScope_SingleScope(t *testing.T) {
 	assert.Equal(t, "insufficient_scope", resp.Error)
 	assert.Equal(t, "Required one of scopes: admin", resp.ErrorDescription)
 }
+
+// --- HTTPRequireScopeWildcard Tests ---
+
+func TestHTTPRequireScopeWildcard_WildcardMatch(t *testing.T) {
+	claims := &Claims{Scopes: []string{"bgc:contractors:*"}}
+	ctx := ContextWithClaims(context.Background(), claims)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(ctx)
+
+	called := false
+	HTTPRequireScopeWildcard("bgc:contractors:read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+
+	assert.True(t, called)
+}
+
+func TestHTTPRequireScopeWildcard_ScopeMissing(t *testing.T) {
+	claims := &Claims{Scopes: []string{"bgc:contractors:*"}}
+	ctx := ContextWithClaims(context.Background(), claims)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(ctx)
+
+	called := false
+	HTTPRequireScopeWildcard("acct:invoices:read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+
+	assert.False(t, called)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	resp := parseHTTPErrorResponse(t, rec)
+	assert.Equal(t, "insufficient_scope", resp.Error)
+	assert.Equal(t, "Required scope: acct:invoices:read", resp.ErrorDescription)
+}
+
+func TestHTTPRequireScopeWildcard_NoClaims(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	called := false
+	HTTPRequireScopeWildcard("read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+
+	assert.False(t, called)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	resp := parseHTTPErrorResponse(t, rec)
+	assert.Equal(t, "invalid_token", resp.Error)
+}
+
+func TestHTTPRequireScopeWildcard_EmptyScopePanics(t *testing.T) {
+	assert.PanicsWithValue(t, "HTTPRequireScopeWildcard: scope cannot be empty", func() {
+		HTTPRequireScopeWildcard("")
+	})
+}
+
+func TestHTTPRequireScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
+	ctx := ContextWithClaims(context.Background(), claims)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(ctx)
+
+	HTTPRequireScopeWildcard("admin")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})).ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	wwwAuth := rec.Header().Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
+	assert.Contains(t, wwwAuth, "Required scope: admin")
+}
+
+// --- HTTPRequireAnyScopeWildcard Tests ---
+
+func TestHTTPRequireAnyScopeWildcard_WildcardMatch(t *testing.T) {
+	claims := &Claims{Scopes: []string{"bgc:*"}}
+	ctx := ContextWithClaims(context.Background(), claims)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(ctx)
+
+	called := false
+	HTTPRequireAnyScopeWildcard([]string{"acct:invoices:read", "bgc:contractors:read"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+
+	assert.True(t, called)
+}
+
+func TestHTTPRequireAnyScopeWildcard_NoneMatch(t *testing.T) {
+	claims := &Claims{Scopes: []string{"acct:expenses:read"}}
+	ctx := ContextWithClaims(context.Background(), claims)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(ctx)
+
+	called := false
+	HTTPRequireAnyScopeWildcard([]string{"admin", "write"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+
+	assert.False(t, called)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	resp := parseHTTPErrorResponse(t, rec)
+	assert.Equal(t, "insufficient_scope", resp.Error)
+	assert.Equal(t, "Required one of scopes: admin, write", resp.ErrorDescription)
+}
+
+func TestHTTPRequireAnyScopeWildcard_NoClaims(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	called := false
+	HTTPRequireAnyScopeWildcard([]string{"read"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+
+	assert.False(t, called)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestHTTPRequireAnyScopeWildcard_EmptyScopesPanics(t *testing.T) {
+	assert.PanicsWithValue(t, "HTTPRequireAnyScopeWildcard: scopes cannot be empty", func() {
+		HTTPRequireAnyScopeWildcard([]string{})
+	})
+}
+
+func TestHTTPRequireAnyScopeWildcard_NilScopesPanics(t *testing.T) {
+	assert.PanicsWithValue(t, "HTTPRequireAnyScopeWildcard: scopes cannot be empty", func() {
+		HTTPRequireAnyScopeWildcard(nil)
+	})
+}
+
+func TestHTTPRequireAnyScopeWildcard_DefensiveScopesCopy(t *testing.T) {
+	claims := &Claims{Scopes: []string{"admin:*"}}
+	ctx := ContextWithClaims(context.Background(), claims)
+
+	scopes := []string{"admin:read", "write"}
+	mw := HTTPRequireAnyScopeWildcard(scopes)
+
+	// Mutate original slice after middleware creation
+	scopes[0] = "MUTATED"
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(ctx)
+
+	called := false
+	mw(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+
+	assert.True(t, called, "middleware should use defensively-copied scopes")
+}
