@@ -1488,6 +1488,84 @@ func TestGinRequireAnyScopeWildcard_DefensiveScopesCopy(t *testing.T) {
 	assert.True(t, called, "middleware should use defensively-copied scopes")
 }
 
+func TestGinRequireAnyScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("auth_claims", claims)
+		c.Next()
+	})
+	router.Use(GinRequireAnyScopeWildcard([]string{"admin", "write"}))
+	router.GET("/test", func(_ *gin.Context) {})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	wwwAuth := w.Header().Get("WWW-Authenticate")
+	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
+	assert.Contains(t, wwwAuth, "admin, write")
+}
+
+func TestGinRequireScopeWildcard_CustomErrorHandler(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
+
+	customCalled := false
+	var receivedErrCode, receivedErrDesc string
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("auth_claims", claims)
+		c.Next()
+	})
+	router.Use(GinRequireScopeWildcard("admin", WithGinScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
+		customCalled = true
+		receivedErrCode = errCode
+		receivedErrDesc = errDesc
+		c.AbortWithStatusJSON(statusCode, gin.H{"custom": errCode + ": " + errDesc})
+	})))
+
+	router.GET("/test", func(_ *gin.Context) {})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	router.ServeHTTP(w, req)
+
+	assert.True(t, customCalled)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, "insufficient_scope", receivedErrCode)
+	assert.Equal(t, "Required scope: admin", receivedErrDesc)
+}
+
+func TestGinRequireAnyScopeWildcard_CustomErrorHandler(t *testing.T) {
+	claims := &Claims{Scopes: []string{"read"}}
+
+	customCalled := false
+	var receivedErrCode, receivedErrDesc string
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("auth_claims", claims)
+		c.Next()
+	})
+	router.Use(GinRequireAnyScopeWildcard([]string{"admin", "write"}, WithGinScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
+		customCalled = true
+		receivedErrCode = errCode
+		receivedErrDesc = errDesc
+		c.AbortWithStatusJSON(statusCode, gin.H{"custom": errCode})
+	})))
+	router.GET("/test", func(_ *gin.Context) {})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	router.ServeHTTP(w, req)
+
+	assert.True(t, customCalled)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, "insufficient_scope", receivedErrCode)
+	assert.Equal(t, "Required one of scopes: admin, write", receivedErrDesc)
+}
+
 func TestGinRequireScopeWildcard_CustomClaimsKey(t *testing.T) {
 	claims := &Claims{Scopes: []string{"bgc:contractors:*"}}
 

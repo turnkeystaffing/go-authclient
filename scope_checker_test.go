@@ -2,6 +2,7 @@ package authclient
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,6 +23,28 @@ func ExampleHasAnyScope() {
 	claims := &Claims{Scopes: []string{"read", "write"}}
 	fmt.Println(HasAnyScope(claims, "admin", "write"))
 	fmt.Println(HasAnyScope(claims, "admin", "delete"))
+	// Output:
+	// true
+	// false
+}
+
+func ExampleHasScopeWildcard() {
+	claims := &Claims{Scopes: []string{"bgc:contractors:*", "admin:*"}}
+	fmt.Println(HasScopeWildcard(claims, "bgc:contractors:read"))
+	fmt.Println(HasScopeWildcard(claims, "admin:users:delete"))
+	fmt.Println(HasScopeWildcard(claims, "acct:invoices:read"))
+	fmt.Println(HasScopeWildcard(nil, "admin:read"))
+	// Output:
+	// true
+	// true
+	// false
+	// false
+}
+
+func ExampleHasAnyScopeWildcard() {
+	claims := &Claims{Scopes: []string{"bgc:contractors:*"}}
+	fmt.Println(HasAnyScopeWildcard(claims, "acct:invoices:read", "bgc:contractors:write"))
+	fmt.Println(HasAnyScopeWildcard(claims, "acct:invoices:read", "admin:users:delete"))
 	// Output:
 	// true
 	// false
@@ -377,6 +400,26 @@ func TestHasScopeWildcard_ComplexScenarios(t *testing.T) {
 	})
 }
 
+func TestHasScopeWildcard_ConcurrentSafety(t *testing.T) {
+	claims := &Claims{Scopes: []string{"bgc:contractors:*", "admin:*", "expenses:approve"}}
+
+	const goroutines = 100
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			assert.True(t, HasScopeWildcard(claims, "bgc:contractors:read"))
+			assert.True(t, HasScopeWildcard(claims, "admin:users:delete"))
+			assert.True(t, HasScopeWildcard(claims, "expenses:approve"))
+			assert.False(t, HasScopeWildcard(claims, "acct:invoices:read"))
+		}()
+	}
+
+	wg.Wait()
+}
+
 // ============================================================================
 // Benchmarks
 // ============================================================================
@@ -410,5 +453,13 @@ func BenchmarkHasScopeWildcard_ServiceWildcard(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		HasScopeWildcard(claims, "bgc:contractors:read")
+	}
+}
+
+func BenchmarkHasScopeWildcard_ManySegments(b *testing.B) {
+	claims := &Claims{Scopes: []string{"bgc:*"}}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		HasScopeWildcard(claims, "bgc:a:b:c:d:e:f")
 	}
 }
