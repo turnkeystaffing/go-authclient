@@ -1,6 +1,7 @@
 package authclient
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -66,6 +67,9 @@ const maxManifestScopes = 10000
 
 // maxManifestTemplates is the maximum number of template definitions allowed in a manifest.
 const maxManifestTemplates = 1000
+
+// maxTemplateNameLength is the maximum length of a template name.
+const maxTemplateNameLength = 255
 
 // maxValidationErrors is the maximum number of validation errors collected before truncation.
 const maxValidationErrors = 50
@@ -141,7 +145,8 @@ func ValidateManifest(m *ScopeManifest) error {
 		serviceCodeValid = false
 	}
 
-	if len(m.Scopes) == 0 {
+	scopesDefined := len(m.Scopes) > 0
+	if !scopesDefined {
 		errs = append(errs, "at least one scope is required")
 	}
 	if len(m.Scopes) > maxManifestScopes {
@@ -174,10 +179,14 @@ func ValidateManifest(m *ScopeManifest) error {
 		if templateLabel == "" {
 			templateLabel = fmt.Sprintf("(template at index %d)", i)
 			errs = append(errs, fmt.Sprintf("template at index %d: name must not be empty", i))
+		} else if len(tmpl.Name) > maxTemplateNameLength {
+			errs = append(errs, fmt.Sprintf("template name exceeds maximum length of %d characters (%d)", maxTemplateNameLength, len(tmpl.Name)))
 		} else if templateNames[tmpl.Name] {
 			errs = append(errs, fmt.Sprintf("duplicate template name %q", tmpl.Name))
 		}
-		templateNames[tmpl.Name] = true
+		if tmpl.Name != "" {
+			templateNames[tmpl.Name] = true
+		}
 
 		if len(tmpl.Scopes) == 0 {
 			errs = append(errs, fmt.Sprintf("template %s must have at least one scope", templateLabel))
@@ -185,7 +194,7 @@ func ValidateManifest(m *ScopeManifest) error {
 
 		scopeRefSet := make(map[string]bool, len(tmpl.Scopes))
 		for _, ref := range tmpl.Scopes {
-			if !scopeSet[ref] {
+			if scopesDefined && !scopeSet[ref] {
 				errs = append(errs, fmt.Sprintf("template %s references undefined scope %q", templateLabel, ref))
 			}
 			if scopeRefSet[ref] {
@@ -195,9 +204,13 @@ func ValidateManifest(m *ScopeManifest) error {
 		}
 	}
 
-	for _, tmpl := range m.Templates {
+	for i, tmpl := range m.Templates {
 		if tmpl.Replaces != "" && templateNames[tmpl.Replaces] {
-			errs = append(errs, fmt.Sprintf("template %q replaces %q which exists in the same manifest; replaces must reference an external template", tmpl.Name, tmpl.Replaces))
+			label := tmpl.Name
+			if label == "" {
+				label = fmt.Sprintf("(template at index %d)", i)
+			}
+			errs = append(errs, fmt.Sprintf("template %s replaces %q which exists in the same manifest; replaces must reference an external template", label, tmpl.Replaces))
 		}
 	}
 
@@ -252,11 +265,15 @@ func LoadManifestFromReader(r io.Reader, format string) (*ScopeManifest, error) 
 	var m ScopeManifest
 	switch strings.ToLower(format) {
 	case "yaml":
-		if err := yaml.Unmarshal(data, &m); err != nil {
+		dec := yaml.NewDecoder(bytes.NewReader(data))
+		dec.KnownFields(true)
+		if err := dec.Decode(&m); err != nil {
 			return nil, fmt.Errorf("parsing YAML manifest: %w", err)
 		}
 	case "json":
-		if err := json.Unmarshal(data, &m); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&m); err != nil {
 			return nil, fmt.Errorf("parsing JSON manifest: %w", err)
 		}
 	case "":

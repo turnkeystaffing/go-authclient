@@ -877,6 +877,95 @@ func TestLoadManifestFromReader_EmptyFormat(t *testing.T) {
 	assert.Contains(t, err.Error(), "format is required")
 }
 
+// --- Adversarial Pass 2: F2 — strict unknown field rejection ---
+
+func TestLoadManifestFromReader_UnknownFields(t *testing.T) {
+	t.Run("YAML unknown field rejected", func(t *testing.T) {
+		content := "service_code: bgc\nservide_code: typo\nscopes:\n  - name: bgc:read\n    description: Read\n"
+		_, err := LoadManifestFromReader(strings.NewReader(content), "yaml")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parsing YAML")
+	})
+
+	t.Run("JSON unknown field rejected", func(t *testing.T) {
+		content := `{"service_code":"bgc","servide_code":"typo","scopes":[{"name":"bgc:read","description":"Read"}]}`
+		_, err := LoadManifestFromReader(strings.NewReader(content), "json")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "parsing JSON")
+	})
+}
+
+// --- Adversarial Pass 2: F6 — mixed valid/invalid scopes ---
+
+func TestValidateManifest_MixedValidAndInvalidScopes(t *testing.T) {
+	m := &ScopeManifest{
+		ServiceCode: "bgc",
+		Scopes: []ScopeDefinition{
+			{Name: "bgc:contractors:read", Description: "Valid"},
+			{Name: "BGC:CONTRACTORS:WRITE", Description: "Invalid - uppercase"},
+			{Name: "other:contractors:read", Description: "Invalid - wrong prefix"},
+		},
+		Templates: []TemplateDefinition{
+			{Name: "viewer", Scopes: []string{"bgc:contractors:read"}},
+		},
+	}
+	err := ValidateManifest(m)
+	require.Error(t, err)
+
+	var valErr *ManifestValidationError
+	require.True(t, errors.As(err, &valErr))
+	// Should have exactly 2 errors (one per invalid scope)
+	assert.Equal(t, 2, len(valErr.Errors))
+	assert.Contains(t, err.Error(), "must be lowercase")
+	assert.Contains(t, err.Error(), "must start with service code")
+	// Valid scope should be in scopeSet — template reference should NOT trigger error
+	assert.NotContains(t, err.Error(), "undefined scope")
+}
+
+// --- Adversarial Pass 2: F9 — template self-reference replaces ---
+
+func TestValidateManifest_TemplateSelfReplaces(t *testing.T) {
+	m := &ScopeManifest{
+		ServiceCode: "bgc",
+		Scopes:      []ScopeDefinition{{Name: "bgc:contractors:read", Description: "Read"}},
+		Templates: []TemplateDefinition{
+			{Name: "viewer", Scopes: []string{"bgc:contractors:read"}, Replaces: "viewer"},
+		},
+	}
+	err := ValidateManifest(m)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "replaces")
+	assert.Contains(t, err.Error(), "exists in the same manifest")
+}
+
+// --- Adversarial Pass 2: F10 — template name length limit ---
+
+func TestValidateManifest_TemplateNameTooLong(t *testing.T) {
+	longName := strings.Repeat("a", 256)
+	m := &ScopeManifest{
+		ServiceCode: "bgc",
+		Scopes:      []ScopeDefinition{{Name: "bgc:contractors:read", Description: "Read"}},
+		Templates: []TemplateDefinition{
+			{Name: longName, Scopes: []string{"bgc:contractors:read"}},
+		},
+	}
+	err := ValidateManifest(m)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds maximum length")
+}
+
+// --- Adversarial Pass 2: F11 — directory path test ---
+
+func TestLoadManifestFromFile_DirectoryPath(t *testing.T) {
+	dir := t.TempDir()
+	// Create a .yaml "file" that is actually the directory itself
+	yamlDir := filepath.Join(dir, "manifest.yaml")
+	require.NoError(t, os.Mkdir(yamlDir, 0755))
+
+	_, err := LoadManifestFromFile(yamlDir)
+	require.Error(t, err)
+}
+
 // --- Adversarial: F12 — error ordering ---
 
 func TestValidateManifest_ErrorOrdering(t *testing.T) {
