@@ -1080,6 +1080,22 @@ func TestHTTPRequireScopeWildcard_WildcardMatch(t *testing.T) {
 	HTTPRequireScopeWildcard("bgc:contractors:read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHTTPRequireScopeWildcard_ServiceWildcardMatch(t *testing.T) {
+	claims := &Claims{Scopes: []string{"bgc:*"}}
+	ctx := ContextWithClaims(context.Background(), claims)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = req.WithContext(ctx)
+
+	called := false
+	HTTPRequireScopeWildcard("bgc:contractors:read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestHTTPRequireScopeWildcard_ScopeMissing(t *testing.T) {
@@ -1282,6 +1298,54 @@ func TestHTTPRequireAnyScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
 	wwwAuth := rec.Header().Get("WWW-Authenticate")
 	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
 	assert.Contains(t, wwwAuth, "admin, write")
+}
+
+func TestHTTPMiddlewareChain_BearerAuth_RequireScopeWildcard(t *testing.T) {
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"bgc:*"}}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return claims, nil
+		},
+	}
+
+	auth := HTTPBearerAuth(validator)
+	scope := HTTPRequireScopeWildcard("bgc:contractors:read")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+
+	handlerCalled := false
+	handler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { handlerCalled = true })
+
+	auth(scope(handler)).ServeHTTP(rec, req)
+
+	assert.True(t, handlerCalled)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHTTPMiddlewareChain_BearerAuth_RequireScopeWildcard_Denied(t *testing.T) {
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"acct:*"}}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return claims, nil
+		},
+	}
+
+	auth := HTTPBearerAuth(validator)
+	scope := HTTPRequireScopeWildcard("bgc:contractors:read")
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+
+	handlerCalled := false
+	handler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { handlerCalled = true })
+
+	auth(scope(handler)).ServeHTTP(rec, req)
+
+	assert.False(t, handlerCalled)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
 }
 
 func TestHTTPRequireAnyScopeWildcard_DefensiveScopesCopy(t *testing.T) {

@@ -426,6 +426,18 @@ func TestFastHTTPRequireScopeWildcard_WildcardMatch(t *testing.T) {
 	FastHTTPRequireScopeWildcard("bgc:contractors:read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.True(t, called)
+	assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
+}
+
+func TestFastHTTPRequireScopeWildcard_ServiceWildcardMatch(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"bgc:*"}})
+
+	called := false
+	FastHTTPRequireScopeWildcard("bgc:contractors:read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.True(t, called)
+	assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
 }
 
 func TestFastHTTPRequireScopeWildcard_ScopeMissing(t *testing.T) {
@@ -585,6 +597,48 @@ func TestFastHTTPRequireAnyScopeWildcard_WWWAuthenticateHeader_403(t *testing.T)
 	wwwAuth := string(ctx.Response.Header.Peek("WWW-Authenticate"))
 	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
 	assert.Contains(t, wwwAuth, "admin, write")
+}
+
+func TestFastHTTPBearerAuth_MiddlewareChain_WildcardScope(t *testing.T) {
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"bgc:*"}}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return claims, nil
+		},
+	}
+
+	auth := FastHTTPBearerAuth(validator)
+	scope := FastHTTPRequireScopeWildcard("bgc:contractors:read")
+
+	handlerCalled := false
+	handler := func(_ *fasthttp.RequestCtx) { handlerCalled = true }
+
+	ctx := newRequestCtx("Bearer valid-token")
+	auth(scope(handler))(ctx)
+
+	assert.True(t, handlerCalled)
+	assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
+}
+
+func TestFastHTTPBearerAuth_MiddlewareChain_WildcardScope_Denied(t *testing.T) {
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"acct:*"}}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return claims, nil
+		},
+	}
+
+	auth := FastHTTPBearerAuth(validator)
+	scope := FastHTTPRequireScopeWildcard("bgc:contractors:read")
+
+	handlerCalled := false
+	handler := func(_ *fasthttp.RequestCtx) { handlerCalled = true }
+
+	ctx := newRequestCtx("Bearer valid-token")
+	auth(scope(handler))(ctx)
+
+	assert.False(t, handlerCalled)
+	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
 }
 
 func TestFastHTTPRequireAnyScopeWildcard_DefensiveScopesCopy(t *testing.T) {

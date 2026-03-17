@@ -463,3 +463,40 @@ func BenchmarkHasScopeWildcard_ManySegments(b *testing.B) {
 		HasScopeWildcard(claims, "bgc:a:b:c:d:e:f")
 	}
 }
+
+func BenchmarkHasAnyScopeWildcard_Match(b *testing.B) {
+	claims := &Claims{Scopes: []string{"read", "write", "bgc:contractors:*", "admin:*"}}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		HasAnyScopeWildcard(claims, "acct:invoices:read", "bgc:contractors:write")
+	}
+}
+
+func BenchmarkHasAnyScopeWildcard_NoMatch(b *testing.B) {
+	claims := &Claims{Scopes: []string{"read", "write", "bgc:contractors:*", "admin:*"}}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		HasAnyScopeWildcard(claims, "acct:invoices:read", "acct:expenses:approve")
+	}
+}
+
+func BenchmarkHasScopeWildcard_LargeScopeCount(b *testing.B) {
+	scopes := make([]string, 60)
+	for i := 0; i < 60; i++ {
+		scopes[i] = fmt.Sprintf("svc%d:resource%d:action%d", i, i, i)
+	}
+	// Target scope is at the end, forcing full iteration
+	scopes[59] = "target:resource:read"
+	claims := &Claims{Scopes: scopes}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		HasScopeWildcard(claims, "target:resource:read")
+	}
+}
+
+func TestHasScopeWildcard_DuplicateWildcardScopes(t *testing.T) {
+	claims := &Claims{Scopes: []string{"bgc:*", "bgc:*", "admin:*"}}
+	assert.True(t, HasScopeWildcard(claims, "bgc:contractors:read"), "duplicate wildcards should not cause issues")
+	assert.True(t, HasScopeWildcard(claims, "admin:users:delete"), "non-duplicate wildcard should still match")
+	assert.False(t, HasScopeWildcard(claims, "acct:invoices:read"), "unrelated scope should not match")
+}

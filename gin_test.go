@@ -1334,6 +1334,27 @@ func TestGinRequireScopeWildcard_WildcardMatch(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+func TestGinRequireScopeWildcard_ServiceWildcardMatch(t *testing.T) {
+	claims := &Claims{Scopes: []string{"bgc:*"}}
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("auth_claims", claims)
+		c.Next()
+	})
+	router.Use(GinRequireScopeWildcard("bgc:contractors:read"))
+
+	called := false
+	router.GET("/test", func(_ *gin.Context) { called = true })
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	router.ServeHTTP(w, req)
+
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
 func TestGinRequireScopeWildcard_ScopeMissing(t *testing.T) {
 	claims := &Claims{Scopes: []string{"bgc:contractors:*"}}
 
@@ -1460,6 +1481,54 @@ func TestGinRequireAnyScopeWildcard_NilScopesPanics(t *testing.T) {
 	assert.PanicsWithValue(t, "GinRequireAnyScopeWildcard: scopes cannot be empty", func() {
 		GinRequireAnyScopeWildcard(nil)
 	})
+}
+
+func TestGinMiddlewareChain_BearerAuth_RequireScopeWildcard(t *testing.T) {
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"bgc:*"}}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return claims, nil
+		},
+	}
+
+	router := gin.New()
+	router.Use(GinBearerAuth(validator))
+	router.Use(GinRequireScopeWildcard("bgc:contractors:read"))
+
+	handlerCalled := false
+	router.GET("/test", func(_ *gin.Context) { handlerCalled = true })
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	router.ServeHTTP(w, req)
+
+	assert.True(t, handlerCalled)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestGinMiddlewareChain_BearerAuth_RequireScopeWildcard_Denied(t *testing.T) {
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"acct:*"}}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return claims, nil
+		},
+	}
+
+	router := gin.New()
+	router.Use(GinBearerAuth(validator))
+	router.Use(GinRequireScopeWildcard("bgc:contractors:read"))
+
+	handlerCalled := false
+	router.GET("/test", func(_ *gin.Context) { handlerCalled = true })
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	router.ServeHTTP(w, req)
+
+	assert.False(t, handlerCalled)
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
 func TestGinRequireAnyScopeWildcard_DefensiveScopesCopy(t *testing.T) {
