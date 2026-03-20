@@ -148,12 +148,14 @@ mux.Handle("/api/", authclient.HTTPNoopAuth(&authclient.Claims{
 
 ### Dev Server
 
-A mock OAuth2 server for local development that implements token and introspection endpoints.
+A mock OAuth2 server for local development that issues real RS256 JWTs and exposes JWKS, introspection, and discovery
+endpoints — a drop-in replacement for the real auth service.
 
 ```go
 srv := devserver.New(devserver.Config{
     ClientID:     "dev-client",
     ClientSecret: "dev-secret",
+	Issuer:       "http://localhost:9090",
     Users: []devserver.User{
         {Name: "admin", Email: "admin@example.com", Scope: "admin read write"},
         {Name: "viewer", Email: "viewer@example.com", Scope: "read"},
@@ -164,16 +166,190 @@ srv := devserver.New(devserver.Config{
 http.ListenAndServe(":9090", srv.Handler())
 ```
 
-Or run the standalone binary:
+Tokens are RS256 JWTs signed with an ephemeral key pair generated at startup. They contain the same claims as the real
+auth service (`client_id`, `scopes`, `user_id`, `email`, `username`, `gty`, `auth_time`), so `JWKSValidator` can
+validate them via the JWKS endpoint.
+
+#### Per-service user sets
+
+Configure different users for different audiences:
+
+```go
+srv := devserver.New(devserver.Config{
+ClientID:     "dev-client",
+ClientSecret: "dev-secret",
+Issuer:       "http://localhost:9090",
+Services: []devserver.ServiceConfig{
+{
+Audience: "api-a",
+Users:    []devserver.User{{Name: "alice", Email: "alice@a.local", Scope: "a:admin"}},
+},
+{
+Audience: "api-b",
+Users:    []devserver.User{{Name: "bob", Email: "bob@b.local", Scope: "b:read"}},
+},
+},
+})
+```
+
+Pass `audience` as a form parameter when requesting a token:
+
+```bash
+curl -s -X POST http://localhost:9090/token \
+  -u dev-client:dev-secret \
+  -d "grant_type=client_credentials&audience=api-a"
+```
+
+When `Services` is configured, user resolution is scoped to the matching audience. When only `Users` is set, those users
+serve all audiences (backward compatible).
+
+#### Endpoints
+
+| Route                                         | Description                                              |
+|-----------------------------------------------|----------------------------------------------------------|
+| `POST /token`                                 | OAuth 2.0 token endpoint (client_credentials, password)  |
+| `POST /introspect`                            | RFC 7662 token introspection                             |
+| `GET /.well-known/jwks.json`                  | JWKS public key set                                      |
+| `GET /.well-known/oauth-authorization-server` | Discovery metadata (issuer, endpoints, supported grants) |
+| `POST /api/v1/oauth/token`                    | Alias for `/token`                                       |
+| `POST /api/v1/oauth/introspect`               | Alias for `/introspect`                                  |
+| `GET /`                                       | HTML dashboard                                           |
+
+#### Discovery
+
+The `/.well-known/oauth-authorization-server` endpoint returns RFC 8414 metadata:
+
+```json
+{
+  "issuer": "http://localhost:9090",
+  "token_endpoint": "http://localhost:9090/token",
+  "introspection_endpoint": "http://localhost:9090/introspect",
+  "jwks_uri": "http://localhost:9090/.well-known/jwks.json",
+  "grant_types_supported": [
+    "client_credentials",
+    "password"
+  ],
+  "token_endpoint_auth_methods_supported": [
+    "client_secret_basic"
+  ],
+  "introspection_endpoint_auth_methods_supported": [
+    "client_secret_basic"
+  ]
+}
+```
+
+#### JWKS validation round-trip
+
+Point `JWKSValidator` at the dev server's JWKS endpoint for local JWT validation:
+
+```go
+validator, _ := authclient.NewJWKSValidator(ctx, authclient.JWKSValidatorConfig{
+Issuer:   "http://localhost:9090",
+Audience: []string{"my-service"},
+JWKS: authclient.JWKSConfig{
+Endpoint: "http://localhost:9090/.well-known/jwks.json",
+},
+}, slog.Default())
+```
+
+#### Standalone binary
 
 ```bash
 go run ./cmd/dev-server
 ```
 
-Endpoints:
-- `POST /token` — OAuth 2.0 token endpoint
-- `POST /introspect` — RFC 7662 introspection
-- `GET /` — HTML dashboard
+Environment variables:
+
+| Variable                 | Default                                              | Description                                      |
+|--------------------------|------------------------------------------------------|--------------------------------------------------|
+| `DEV_AUTH_PORT`          | `9091`                                               | Listen port                                      |
+| `DEV_AUTH_CLIENT_ID`     | `dev`                                                | Basic Auth client ID                             |
+| `DEV_AUTH_CLIENT_SECRET` | `dev`                                                | Basic Auth client secret                         |
+| `DEV_AUTH_USERS`         | `admin\|admin@dev.local\|admin openid profile email` | User definitions (see format below)              |
+| `DEV_AUTH_ISSUER`        | `http://localhost:<port>`                            | JWT issuer claim                                 |
+| `DEV_AUTH_SERVICES`      | _(empty)_                                            | Per-audience user definitions (see format below) |
+
+**`DEV_AUTH_USERS`** defines the users available for token issuance. Use this when you have a single service or don't
+need audience-scoped users. Each user has three fields separated by `|` (pipe). Multiple users are separated by `;` (
+semicolon).
+
+```
+<name>|<email>|<scopes>
+```
+
+| Field    | Description                                                                                                                | Example                      |
+|----------|----------------------------------------------------------------------------------------------------------------------------|------------------------------|
+| `name`   | Unique identifier. Becomes `sub: "dev-<name>"` in the JWT. Also used as the `username` parameter for the `password` grant. | `admin`                      |
+| `email`  | Populates the `email` claim in the JWT and introspection response.                                                         | `admin@dev.local`            |
+| `scopes` | Space-delimited OAuth2 scopes assigned to this user.                                                                       | `admin openid profile email` |
+
+Single user:
+
+```bash
+DEV_AUTH_USERS="admin|admin@dev.local|admin openid profile email"
+```
+
+Multiple users — separate with `;`:
+
+```bash
+DEV_AUTH_USERS="admin|admin@dev.local|admin openid profile email;viewer|viewer@dev.local|read"
+```
+
+When `DEV_AUTH_SERVICES` is set, `DEV_AUTH_USERS` is ignored.
+
+---
+
+**`DEV_AUTH_SERVICES`** defines per-audience user sets. Use this when you run multiple services locally and each service
+needs its own users.
+
+In the real auth service, the `aud` claim is set server-side based on the client registration — it is not part of the
+token request. The devserver simulates this with a devserver-specific `audience` form parameter on `/token` that selects
+which service's users to resolve and sets the JWT `aud` claim. Use the service UUID from the auth service dashboard —
+the same value you configure in `JWKSValidatorConfig.Audience`.
+
+Format — each service block is `<audience>:<users>`, separated by `;`. Users within a service are separated by `,`:
+
+```
+<audience>:<user>,<user> ; <audience>:<user>,<user>
+           │                          │
+           └─ name|email|scopes       └─ name|email|scopes
+```
+
+| Separator | Separates                                    |
+|-----------|----------------------------------------------|
+| `;`       | Service blocks                               |
+| `:`       | Audience from its users                      |
+| `,`       | Users within a service                       |
+| `\|`      | Fields within a user (`name\|email\|scopes`) |
+
+Example — two services, each keyed by its service UUID:
+
+```bash
+# Copy these UUIDs from the auth service dashboard for each service
+BGCHECK_AUD="d290f1ee-6c54-4b01-90e6-d701748f0851"
+USERAPI_AUD="7c9e6679-7425-40de-944b-e07fc1f90ae7"
+
+DEV_AUTH_SERVICES="${BGCHECK_AUD}:admin|admin@dev.local|bgcheck:admin,viewer|viewer@dev.local|bgcheck:read;${USERAPI_AUD}:svc|svc@dev.local|users:read users:write"
+```
+
+Broken down:
+
+| Service  | Audience (UUID)    | Users                                            |
+|----------|--------------------|--------------------------------------------------|
+| bgcheck  | `d290f1ee-...0851` | `admin` (bgcheck:admin), `viewer` (bgcheck:read) |
+| user-api | `7c9e6679-...0ae7` | `svc` (users:read users:write)                   |
+
+Request a token for a specific service using the devserver-specific `audience` parameter (not part of the real auth
+service API):
+
+```bash
+curl -s -X POST http://localhost:9091/token \
+  -u dev:dev \
+  -d "grant_type=client_credentials&audience=d290f1ee-6c54-4b01-90e6-d701748f0851"
+```
+
+The issued JWT will have `"aud": "d290f1ee-6c54-4b01-90e6-d701748f0851"`, matching what `JWKSValidator` expects. Users
+from one service are not visible to another.
 
 ### Step-up authentication (sensitive operations)
 
