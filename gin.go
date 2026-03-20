@@ -244,6 +244,103 @@ func GinRequireAnyScope(scopes []string, opts ...GinScopeOption) gin.HandlerFunc
 	}
 }
 
+// GinRequireScopeWildcard returns gin middleware that checks the authenticated request
+// has a scope matching the required scope using wildcard matching.
+// Must be applied after GinBearerAuth.
+//
+// Unlike GinRequireScope (exact match only), this supports wildcard patterns:
+// a user with "bgc:*" will satisfy a requirement for "bgc:contractors:read".
+//
+// Returns 401 if no claims found, 403 if scope not matched.
+func GinRequireScopeWildcard(scope string, opts ...GinScopeOption) gin.HandlerFunc {
+	if scope == "" {
+		panic("GinRequireScopeWildcard: scope cannot be empty")
+	}
+	cfg := ginScopeConfig{
+		claimsKey:    "auth_claims",
+		errorHandler: ginDefaultErrorHandler,
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	return func(c *gin.Context) {
+		val, exists := c.Get(cfg.claimsKey)
+		if !exists {
+			cfg.errorHandler(c, http.StatusUnauthorized,
+				"invalid_token", "Missing authentication context")
+			c.Abort()
+			return
+		}
+		claims, ok := val.(*Claims)
+		if !ok || claims == nil {
+			cfg.errorHandler(c, http.StatusUnauthorized,
+				"invalid_token", "Missing authentication context")
+			c.Abort()
+			return
+		}
+
+		if !HasScopeWildcard(claims, scope) {
+			cfg.errorHandler(c, http.StatusForbidden,
+				"insufficient_scope", "Required scope: "+scope)
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// GinRequireAnyScopeWildcard returns gin middleware that checks the authenticated request
+// has at least one scope matching any of the required scopes using wildcard matching.
+// Must be applied after GinBearerAuth.
+//
+// The scopes slice is defensively copied at middleware creation time.
+//
+// Returns 401 if no claims found, 403 if none of the required scopes matched.
+func GinRequireAnyScopeWildcard(scopes []string, opts ...GinScopeOption) gin.HandlerFunc {
+	if len(scopes) == 0 {
+		panic("GinRequireAnyScopeWildcard: scopes cannot be empty")
+	}
+	cfg := ginScopeConfig{
+		claimsKey:    "auth_claims",
+		errorHandler: ginDefaultErrorHandler,
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	scopesCopy := make([]string, len(scopes))
+	copy(scopesCopy, scopes)
+	scopesDesc := strings.Join(scopesCopy, ", ")
+
+	return func(c *gin.Context) {
+		val, exists := c.Get(cfg.claimsKey)
+		if !exists {
+			cfg.errorHandler(c, http.StatusUnauthorized,
+				"invalid_token", "Missing authentication context")
+			c.Abort()
+			return
+		}
+		claims, ok := val.(*Claims)
+		if !ok || claims == nil {
+			cfg.errorHandler(c, http.StatusUnauthorized,
+				"invalid_token", "Missing authentication context")
+			c.Abort()
+			return
+		}
+
+		if !HasAnyScopeWildcard(claims, scopesCopy...) {
+			cfg.errorHandler(c, http.StatusForbidden,
+				"insufficient_scope", "Required one of scopes: "+scopesDesc)
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
 // GinNoopAuth returns gin middleware that injects default claims without
 // token validation. For development and testing only.
 //
