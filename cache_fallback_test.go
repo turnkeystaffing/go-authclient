@@ -23,9 +23,9 @@ type mockMonitor struct {
 	degraded atomic.Bool
 }
 
-func (m *mockMonitor) IsDegraded() bool   { return m.degraded.Load() }
-func (m *mockMonitor) MarkDegraded()      { m.degraded.Store(true) }
-func (m *mockMonitor) MarkHealthy()       { m.degraded.Store(false) }
+func (m *mockMonitor) IsDegraded() bool { return m.degraded.Load() }
+func (m *mockMonitor) MarkDegraded()    { m.degraded.Store(true) }
+func (m *mockMonitor) MarkHealthy()     { m.degraded.Store(false) }
 
 // --- mock failing cache ---
 
