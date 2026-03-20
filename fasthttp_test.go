@@ -416,6 +416,275 @@ func TestFastHTTPRequireAnyScope_NilScopesPanics(t *testing.T) {
 	})
 }
 
+// --- RequireScopeWildcard Tests ---
+
+func TestFastHTTPRequireScopeWildcard_WildcardMatch(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"bgc:contractors:*"}})
+
+	called := false
+	FastHTTPRequireScopeWildcard("bgc:contractors:read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.True(t, called)
+	assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
+}
+
+func TestFastHTTPRequireScopeWildcard_ServiceWildcardMatch(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"bgc:*"}})
+
+	called := false
+	FastHTTPRequireScopeWildcard("bgc:contractors:read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.True(t, called)
+	assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
+}
+
+func TestFastHTTPRequireScopeWildcard_ScopeMissing(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"bgc:contractors:*"}})
+
+	called := false
+	FastHTTPRequireScopeWildcard("acct:invoices:read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.False(t, called)
+	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
+	resp := parseErrorResponse(t, ctx)
+	assert.Equal(t, "insufficient_scope", resp.Error)
+	assert.Equal(t, "Required scope: acct:invoices:read", resp.ErrorDescription)
+}
+
+func TestFastHTTPRequireScopeWildcard_NoClaims(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+
+	called := false
+	FastHTTPRequireScopeWildcard("read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.False(t, called)
+	assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
+	resp := parseErrorResponse(t, ctx)
+	assert.Equal(t, "invalid_token", resp.Error)
+}
+
+func TestFastHTTPRequireScopeWildcard_EmptyScopePanics(t *testing.T) {
+	assert.PanicsWithValue(t, "FastHTTPRequireScopeWildcard: scope cannot be empty", func() {
+		FastHTTPRequireScopeWildcard("")
+	})
+}
+
+func TestFastHTTPRequireScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+
+	FastHTTPRequireScopeWildcard("admin")(func(_ *fasthttp.RequestCtx) {})(ctx)
+
+	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
+	wwwAuth := string(ctx.Response.Header.Peek("WWW-Authenticate"))
+	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
+	assert.Contains(t, wwwAuth, "Required scope: admin")
+}
+
+// --- RequireAnyScopeWildcard Tests ---
+
+func TestFastHTTPRequireAnyScopeWildcard_WildcardMatch(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"bgc:*"}})
+
+	called := false
+	FastHTTPRequireAnyScopeWildcard([]string{"acct:invoices:read", "bgc:contractors:read"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.True(t, called)
+}
+
+func TestFastHTTPRequireAnyScopeWildcard_NoneMatch(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"acct:expenses:read"}})
+
+	called := false
+	FastHTTPRequireAnyScopeWildcard([]string{"admin", "write"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.False(t, called)
+	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
+	resp := parseErrorResponse(t, ctx)
+	assert.Equal(t, "insufficient_scope", resp.Error)
+	assert.Equal(t, "Required one of scopes: admin, write", resp.ErrorDescription)
+}
+
+func TestFastHTTPRequireAnyScopeWildcard_NoClaims(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+
+	called := false
+	FastHTTPRequireAnyScopeWildcard([]string{"read"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.False(t, called)
+	assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
+}
+
+func TestFastHTTPRequireAnyScopeWildcard_EmptyScopesPanics(t *testing.T) {
+	assert.PanicsWithValue(t, "FastHTTPRequireAnyScopeWildcard: scopes cannot be empty", func() {
+		FastHTTPRequireAnyScopeWildcard([]string{})
+	})
+}
+
+func TestFastHTTPRequireAnyScopeWildcard_NilScopesPanics(t *testing.T) {
+	assert.PanicsWithValue(t, "FastHTTPRequireAnyScopeWildcard: scopes cannot be empty", func() {
+		FastHTTPRequireAnyScopeWildcard(nil)
+	})
+}
+
+func TestFastHTTPRequireScopeWildcard_CustomClaimsKey(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue("custom_claims", &Claims{Scopes: []string{"bgc:contractors:*"}})
+
+	called := false
+	FastHTTPRequireScopeWildcard("bgc:contractors:read", WithScopeClaimsKey("custom_claims"))(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.True(t, called)
+}
+
+func TestFastHTTPRequireAnyScopeWildcard_CustomClaimsKey(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue("custom_claims", &Claims{Scopes: []string{"bgc:*"}})
+
+	called := false
+	FastHTTPRequireAnyScopeWildcard([]string{"bgc:contractors:read"}, WithScopeClaimsKey("custom_claims"))(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.True(t, called)
+}
+
+func TestFastHTTPRequireScopeWildcard_CustomErrorHandler(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+
+	customCalled := false
+	scope := FastHTTPRequireScopeWildcard("admin", WithScopeErrorHandler(func(c *fasthttp.RequestCtx, statusCode int, errCode, errDesc string) {
+		customCalled = true
+		c.SetStatusCode(statusCode)
+		c.SetBodyString(errCode + ": " + errDesc)
+	}))
+
+	scope(func(_ *fasthttp.RequestCtx) {})(ctx)
+
+	assert.True(t, customCalled, "wildcard scope middleware should use custom error handler")
+	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
+	assert.Equal(t, "insufficient_scope: Required scope: admin", string(ctx.Response.Body()))
+}
+
+func TestFastHTTPRequireAnyScopeWildcard_CustomErrorHandler(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+
+	customCalled := false
+	scope := FastHTTPRequireAnyScopeWildcard([]string{"admin", "write"}, WithScopeErrorHandler(func(c *fasthttp.RequestCtx, statusCode int, errCode, errDesc string) {
+		customCalled = true
+		c.SetStatusCode(statusCode)
+		c.SetBodyString(errCode + ": " + errDesc)
+	}))
+
+	scope(func(_ *fasthttp.RequestCtx) {})(ctx)
+
+	assert.True(t, customCalled, "wildcard any-scope middleware should use custom error handler")
+	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
+}
+
+func TestFastHTTPRequireAnyScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+
+	FastHTTPRequireAnyScopeWildcard([]string{"admin", "write"})(func(_ *fasthttp.RequestCtx) {})(ctx)
+
+	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
+	wwwAuth := string(ctx.Response.Header.Peek("WWW-Authenticate"))
+	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
+	assert.Contains(t, wwwAuth, "admin, write")
+}
+
+func TestFastHTTPBearerAuth_MiddlewareChain_WildcardScope(t *testing.T) {
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"bgc:*"}}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return claims, nil
+		},
+	}
+
+	auth := FastHTTPBearerAuth(validator)
+	scope := FastHTTPRequireScopeWildcard("bgc:contractors:read")
+
+	handlerCalled := false
+	handler := func(_ *fasthttp.RequestCtx) { handlerCalled = true }
+
+	ctx := newRequestCtx("Bearer valid-token")
+	auth(scope(handler))(ctx)
+
+	assert.True(t, handlerCalled)
+	assert.Equal(t, fasthttp.StatusOK, ctx.Response.StatusCode())
+}
+
+func TestFastHTTPBearerAuth_MiddlewareChain_WildcardScope_Denied(t *testing.T) {
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"acct:*"}}
+	validator := &mockTokenValidator{
+		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
+			return claims, nil
+		},
+	}
+
+	auth := FastHTTPBearerAuth(validator)
+	scope := FastHTTPRequireScopeWildcard("bgc:contractors:read")
+
+	handlerCalled := false
+	handler := func(_ *fasthttp.RequestCtx) { handlerCalled = true }
+
+	ctx := newRequestCtx("Bearer valid-token")
+	auth(scope(handler))(ctx)
+
+	assert.False(t, handlerCalled)
+	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
+}
+
+func TestFastHTTPRequireAnyScopeWildcard_DefensiveScopesCopy(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"admin:*"}})
+
+	scopes := []string{"admin:read", "write"}
+	mw := FastHTTPRequireAnyScopeWildcard(scopes)
+
+	// Mutate original slice after middleware creation
+	scopes[0] = "MUTATED"
+
+	called := false
+	mw(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.True(t, called, "middleware should use defensively-copied scopes")
+}
+
+func TestFastHTTPRequireScopeWildcard_WrongTypeInContext(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, "not-a-claims-pointer")
+
+	called := false
+	FastHTTPRequireScopeWildcard("read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.False(t, called)
+	assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
+	resp := parseErrorResponse(t, ctx)
+	assert.Equal(t, "invalid_token", resp.Error)
+	assert.Equal(t, "Missing authentication context", resp.ErrorDescription)
+}
+
+func TestFastHTTPRequireAnyScopeWildcard_WrongTypeInContext(t *testing.T) {
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue(DefaultClaimsKey, 42)
+
+	called := false
+	FastHTTPRequireAnyScopeWildcard([]string{"read"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+
+	assert.False(t, called)
+	assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
+	resp := parseErrorResponse(t, ctx)
+	assert.Equal(t, "invalid_token", resp.Error)
+	assert.Equal(t, "Missing authentication context", resp.ErrorDescription)
+}
+
 // --- NoopAuth Tests ---
 
 func TestFastHTTPNoopAuth_InjectsClaims(t *testing.T) {

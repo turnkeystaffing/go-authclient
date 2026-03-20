@@ -305,6 +305,79 @@ func FastHTTPRequireAnyScope(scopes []string, opts ...FastHTTPScopeOption) func(
 	}
 }
 
+// FastHTTPRequireScopeWildcard returns middleware that checks the authenticated request
+// has a scope matching the required scope using wildcard matching.
+// Must be applied after BearerAuth.
+//
+// Unlike FastHTTPRequireScope (exact match only), this supports wildcard patterns:
+// a user with "bgc:*" will satisfy a requirement for "bgc:contractors:read".
+//
+// Returns 401 if no claims are found (BearerAuth not applied or failed).
+// Returns 403 if the required scope is not matched.
+func FastHTTPRequireScopeWildcard(scope string, opts ...FastHTTPScopeOption) func(fasthttp.RequestHandler) fasthttp.RequestHandler {
+	if scope == "" {
+		panic("FastHTTPRequireScopeWildcard: scope cannot be empty")
+	}
+	cfg := newScopeConfig(opts)
+
+	return func(next fasthttp.RequestHandler) fasthttp.RequestHandler {
+		return func(ctx *fasthttp.RequestCtx) {
+			claims, ok := ctx.UserValue(cfg.claimsKey).(*Claims)
+			if !ok || claims == nil {
+				cfg.errorHandler(ctx, fasthttp.StatusUnauthorized,
+					"invalid_token", "Missing authentication context")
+				return
+			}
+
+			if !HasScopeWildcard(claims, scope) {
+				cfg.errorHandler(ctx, fasthttp.StatusForbidden,
+					"insufficient_scope", "Required scope: "+scope)
+				return
+			}
+
+			next(ctx)
+		}
+	}
+}
+
+// FastHTTPRequireAnyScopeWildcard returns middleware that checks the authenticated request
+// has at least one scope matching any of the required scopes using wildcard matching.
+// Must be applied after BearerAuth.
+//
+// The scopes slice is defensively copied at middleware creation time.
+//
+// Returns 401 if no claims are found (BearerAuth not applied or failed).
+// Returns 403 if none of the required scopes are matched.
+func FastHTTPRequireAnyScopeWildcard(scopes []string, opts ...FastHTTPScopeOption) func(fasthttp.RequestHandler) fasthttp.RequestHandler {
+	if len(scopes) == 0 {
+		panic("FastHTTPRequireAnyScopeWildcard: scopes cannot be empty")
+	}
+	cfg := newScopeConfig(opts)
+
+	scopesCopy := make([]string, len(scopes))
+	copy(scopesCopy, scopes)
+	scopesDesc := strings.Join(scopesCopy, ", ")
+
+	return func(next fasthttp.RequestHandler) fasthttp.RequestHandler {
+		return func(ctx *fasthttp.RequestCtx) {
+			claims, ok := ctx.UserValue(cfg.claimsKey).(*Claims)
+			if !ok || claims == nil {
+				cfg.errorHandler(ctx, fasthttp.StatusUnauthorized,
+					"invalid_token", "Missing authentication context")
+				return
+			}
+
+			if !HasAnyScopeWildcard(claims, scopesCopy...) {
+				cfg.errorHandler(ctx, fasthttp.StatusForbidden,
+					"insufficient_scope", "Required one of scopes: "+scopesDesc)
+				return
+			}
+
+			next(ctx)
+		}
+	}
+}
+
 // FastHTTPNoopAuth returns middleware that injects default claims without
 // token validation. For development and testing only.
 //

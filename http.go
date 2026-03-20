@@ -201,6 +201,85 @@ func HTTPRequireAnyScope(scopes []string, opts ...HTTPScopeOption) func(http.Han
 	}
 }
 
+// HTTPRequireScopeWildcard returns middleware that checks the authenticated request
+// has a scope matching the required scope using wildcard matching.
+// Must be applied after HTTPBearerAuth.
+//
+// Unlike HTTPRequireScope (exact match only), this supports wildcard patterns:
+// a user with "bgc:*" will satisfy a requirement for "bgc:contractors:read".
+//
+// Returns 401 if no claims are found (HTTPBearerAuth not applied or failed).
+// Returns 403 if the required scope is not matched.
+func HTTPRequireScopeWildcard(scope string, opts ...HTTPScopeOption) func(http.Handler) http.Handler {
+	if scope == "" {
+		panic("HTTPRequireScopeWildcard: scope cannot be empty")
+	}
+	cfg := httpScopeConfig{errorHandler: defaultHTTPErrorHandler}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := ClaimsFromContext(r.Context())
+			if !ok || claims == nil {
+				cfg.errorHandler(w, r, http.StatusUnauthorized,
+					"invalid_token", "Missing authentication context")
+				return
+			}
+
+			if !HasScopeWildcard(claims, scope) {
+				cfg.errorHandler(w, r, http.StatusForbidden,
+					"insufficient_scope", "Required scope: "+scope)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// HTTPRequireAnyScopeWildcard returns middleware that checks the authenticated request
+// has at least one scope matching any of the required scopes using wildcard matching.
+// Must be applied after HTTPBearerAuth.
+//
+// The scopes slice is defensively copied at middleware creation time.
+//
+// Returns 401 if no claims are found (HTTPBearerAuth not applied or failed).
+// Returns 403 if none of the required scopes are matched.
+func HTTPRequireAnyScopeWildcard(scopes []string, opts ...HTTPScopeOption) func(http.Handler) http.Handler {
+	if len(scopes) == 0 {
+		panic("HTTPRequireAnyScopeWildcard: scopes cannot be empty")
+	}
+	cfg := httpScopeConfig{errorHandler: defaultHTTPErrorHandler}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	scopesCopy := make([]string, len(scopes))
+	copy(scopesCopy, scopes)
+	scopesDesc := strings.Join(scopesCopy, ", ")
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := ClaimsFromContext(r.Context())
+			if !ok || claims == nil {
+				cfg.errorHandler(w, r, http.StatusUnauthorized,
+					"invalid_token", "Missing authentication context")
+				return
+			}
+
+			if !HasAnyScopeWildcard(claims, scopesCopy...) {
+				cfg.errorHandler(w, r, http.StatusForbidden,
+					"insufficient_scope", "Required one of scopes: "+scopesDesc)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // HTTPNoopAuth returns middleware that injects default claims without
 // token validation. For development and testing only.
 //
