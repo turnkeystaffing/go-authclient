@@ -114,17 +114,91 @@ token, err := provider.Token(ctx)
 
 ### OpenTelemetry instrumentation
 
+All components support opt-in OTel tracing and metrics via decorator wrappers. If your service
+uses [go-opentelemetry](https://github.com/turnkeystaffing/go-opentelemetry) with global providers, no options are
+needed — just wrap and go.
+
+#### JWKS-only (no cache)
+
 ```go
-instrumented := authclient.NewInstrumentedValidator(validator,
-    authclient.WithTracerProvider(tp),
-    authclient.WithMeterProvider(mp),
-)
+validator := authclient.InstrumentValidator(jwksValidator)
+provider := authclient.InstrumentTokenProvider(oauthProvider)
 ```
 
-Emits:
-- `authclient.validate_token.total` counter
-- `authclient.validate_token.duration` histogram (ms)
-- Trace spans with `client_id`, `scope_count`, and error attributes
+#### Introspection with cache (wiring order matters)
+
+The cache is captured by reference inside `IntrospectionClient` at construction time. It **must be instrumented before**
+being passed to the constructor — instrumenting after has no effect.
+
+```go
+// 1. Cache FIRST — it goes INTO the client
+cache := authclient.InstrumentCache(fallbackCache)
+
+// 2. Build client with the instrumented cache
+client := authclient.NewIntrospectionClient(authclient.IntrospectionClientConfig{
+Cache: cache,
+// ...
+}, logger)
+
+// 3. Wrap the client itself
+validator := authclient.InstrumentValidator(client)
+
+// 4. Token provider is independent — any order
+provider := authclient.InstrumentTokenProvider(oauthProvider)
+```
+
+#### Explicit providers (tests or non-global setup)
+
+```go
+opts := []authclient.InstrumentationOption{
+    authclient.WithTracerProvider(tp),
+    authclient.WithMeterProvider(mp),
+}
+cache := authclient.InstrumentCache(fallbackCache, opts...)
+validator := authclient.InstrumentValidator(client, opts...)
+provider := authclient.InstrumentTokenProvider(oauthProvider, opts...)
+```
+
+#### Instrumented middleware
+
+Drop-in replacements for the standard middleware that add request counters with rejection reasons:
+
+```go
+// net/http
+mux.Handle("/api/", authclient.InstrumentedHTTPBearerAuth(validator, otelOpts)(handler))
+
+// Gin
+r.Use(authclient.InstrumentedGinBearerAuth(validator, otelOpts))
+r.Use(authclient.InstrumentedGinRequireScope("read", otelOpts))
+
+// FastHTTP
+handler = authclient.InstrumentedFastHTTPBearerAuth(validator, otelOpts)(handler)
+```
+
+#### Discovery handler
+
+```go
+handler := authclient.NewInstrumentedDiscoveryHandler(discoveryHandler)
+```
+
+#### Metrics emitted
+
+| Metric                                | Type           | Attributes                      |
+|---------------------------------------|----------------|---------------------------------|
+| `authclient.validate_token.total`     | Counter        | `result`                        |
+| `authclient.validate_token.duration`  | Histogram (ms) | `result`                        |
+| `authclient.cache.ops.total`          | Counter        | `operation`, `result`           |
+| `authclient.cache.ops.duration`       | Histogram (ms) | `operation`, `result`           |
+| `authclient.token_provider.total`     | Counter        | `result`                        |
+| `authclient.token_provider.duration`  | Histogram (ms) | `result`                        |
+| `authclient.middleware.auth.total`    | Counter        | `result`, `reason`, `framework` |
+| `authclient.middleware.scope.total`   | Counter        | `result`, `scope`, `framework`  |
+| `authclient.discovery.requests.total` | Counter        | `method`, `status`              |
+| `authclient.discovery.reload.total`   | Counter        | `result`                        |
+
+Trace spans are created for validation (`authclient.validate_token`), introspection (`authclient.introspect`), cache
+operations (`authclient.cache.get/set/del`), and token acquisition (`authclient.token_provider.get_token`). Token values
+are never recorded in spans or metrics.
 
 ### Development with NoopValidator
 
