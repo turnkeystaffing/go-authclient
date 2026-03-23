@@ -82,7 +82,7 @@ func TestFastHTTPBearerAuth_EmptyToken(t *testing.T) {
 func TestFastHTTPBearerAuth_ValidToken(t *testing.T) {
 	expectedClaims := &Claims{
 		ClientID: "test-client-uuid",
-		Scopes:   []string{"read", "write"},
+		Scopes:   []string{"svc:data:read", "svc:data:write"},
 	}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
@@ -110,7 +110,7 @@ func TestFastHTTPBearerAuth_ValidToken(t *testing.T) {
 func TestFastHTTPBearerAuth_ValidToken_ContextBridge(t *testing.T) {
 	expectedClaims := &Claims{
 		ClientID: "bridge-client",
-		Scopes:   []string{"admin"},
+		Scopes:   []string{"svc:admin:manage"},
 	}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
@@ -304,33 +304,33 @@ func TestFastHTTPBearerAuth_ErrorResponseJSON(t *testing.T) {
 
 func TestFastHTTPRequireScope_ScopePresent(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read", "write"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:data:read", "svc:data:write"}})
 
 	called := false
-	FastHTTPRequireScope("read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireScope("svc:data:read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.True(t, called)
 }
 
 func TestFastHTTPRequireScope_ScopeMissing(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:data:read"}})
 
 	called := false
-	FastHTTPRequireScope("admin")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireScope("svc:admin:manage")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.False(t, called)
 	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
 	resp := parseErrorResponse(t, ctx)
 	assert.Equal(t, "insufficient_scope", resp.Error)
-	assert.Equal(t, "Required scope: admin", resp.ErrorDescription)
+	assert.Equal(t, "Required scope: svc:admin:manage", resp.ErrorDescription)
 }
 
 func TestFastHTTPRequireScope_NoClaims(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
 
 	called := false
-	FastHTTPRequireScope("read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireScope("svc:data:read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.False(t, called)
 	assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
@@ -350,7 +350,7 @@ func TestFastHTTPRequireScope_WrongTypeInUserValue(t *testing.T) {
 	ctx.SetUserValue(DefaultClaimsKey, "not-a-claims-pointer")
 
 	called := false
-	FastHTTPRequireScope("read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireScope("svc:data:read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.False(t, called)
 	assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
@@ -358,10 +358,10 @@ func TestFastHTTPRequireScope_WrongTypeInUserValue(t *testing.T) {
 
 func TestFastHTTPRequireScope_CustomClaimsKey(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue("custom_claims", &Claims{Scopes: []string{"admin"}})
+	ctx.SetUserValue("custom_claims", &Claims{Scopes: []string{"svc:admin:manage"}})
 
 	called := false
-	FastHTTPRequireScope("admin", WithScopeClaimsKey("custom_claims"))(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireScope("svc:admin:manage", WithScopeClaimsKey("custom_claims"))(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.True(t, called)
 }
@@ -370,33 +370,33 @@ func TestFastHTTPRequireScope_CustomClaimsKey(t *testing.T) {
 
 func TestFastHTTPRequireAnyScope_AnyMatch(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read", "write"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:data:read", "svc:data:write"}})
 
 	called := false
-	FastHTTPRequireAnyScope([]string{"admin", "write"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.True(t, called)
 }
 
 func TestFastHTTPRequireAnyScope_NoneMatch(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:data:read"}})
 
 	called := false
-	FastHTTPRequireAnyScope([]string{"admin", "write"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.False(t, called)
 	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
 	resp := parseErrorResponse(t, ctx)
 	assert.Equal(t, "insufficient_scope", resp.Error)
-	assert.Equal(t, "Required one of scopes: admin, write", resp.ErrorDescription)
+	assert.Equal(t, "Required one of scopes: svc:admin:manage, svc:data:write", resp.ErrorDescription)
 }
 
 func TestFastHTTPRequireAnyScope_NoClaims(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
 
 	called := false
-	FastHTTPRequireAnyScope([]string{"read"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireAnyScope([]string{"svc:data:read"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.False(t, called)
 	assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
@@ -458,7 +458,7 @@ func TestFastHTTPRequireScopeWildcard_NoClaims(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
 
 	called := false
-	FastHTTPRequireScopeWildcard("read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireScopeWildcard("svc:data:read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.False(t, called)
 	assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
@@ -474,14 +474,14 @@ func TestFastHTTPRequireScopeWildcard_EmptyScopePanics(t *testing.T) {
 
 func TestFastHTTPRequireScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:data:read"}})
 
-	FastHTTPRequireScopeWildcard("admin")(func(_ *fasthttp.RequestCtx) {})(ctx)
+	FastHTTPRequireScopeWildcard("svc:admin:manage")(func(_ *fasthttp.RequestCtx) {})(ctx)
 
 	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
 	wwwAuth := string(ctx.Response.Header.Peek("WWW-Authenticate"))
 	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
-	assert.Contains(t, wwwAuth, "Required scope: admin")
+	assert.Contains(t, wwwAuth, "Required scope: svc:admin:manage")
 }
 
 // --- RequireAnyScopeWildcard Tests ---
@@ -501,20 +501,20 @@ func TestFastHTTPRequireAnyScopeWildcard_NoneMatch(t *testing.T) {
 	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"acct:expenses:read"}})
 
 	called := false
-	FastHTTPRequireAnyScopeWildcard([]string{"admin", "write"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireAnyScopeWildcard([]string{"svc:admin:manage", "svc:data:write"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.False(t, called)
 	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
 	resp := parseErrorResponse(t, ctx)
 	assert.Equal(t, "insufficient_scope", resp.Error)
-	assert.Equal(t, "Required one of scopes: admin, write", resp.ErrorDescription)
+	assert.Equal(t, "Required one of scopes: svc:admin:manage, svc:data:write", resp.ErrorDescription)
 }
 
 func TestFastHTTPRequireAnyScopeWildcard_NoClaims(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
 
 	called := false
-	FastHTTPRequireAnyScopeWildcard([]string{"read"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireAnyScopeWildcard([]string{"svc:data:read"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.False(t, called)
 	assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
@@ -554,10 +554,10 @@ func TestFastHTTPRequireAnyScopeWildcard_CustomClaimsKey(t *testing.T) {
 
 func TestFastHTTPRequireScopeWildcard_CustomErrorHandler(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:data:read"}})
 
 	customCalled := false
-	scope := FastHTTPRequireScopeWildcard("admin", WithScopeErrorHandler(func(c *fasthttp.RequestCtx, statusCode int, errCode, errDesc string) {
+	scope := FastHTTPRequireScopeWildcard("svc:admin:manage", WithScopeErrorHandler(func(c *fasthttp.RequestCtx, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		c.SetStatusCode(statusCode)
 		c.SetBodyString(errCode + ": " + errDesc)
@@ -567,15 +567,15 @@ func TestFastHTTPRequireScopeWildcard_CustomErrorHandler(t *testing.T) {
 
 	assert.True(t, customCalled, "wildcard scope middleware should use custom error handler")
 	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
-	assert.Equal(t, "insufficient_scope: Required scope: admin", string(ctx.Response.Body()))
+	assert.Equal(t, "insufficient_scope: Required scope: svc:admin:manage", string(ctx.Response.Body()))
 }
 
 func TestFastHTTPRequireAnyScopeWildcard_CustomErrorHandler(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:data:read"}})
 
 	customCalled := false
-	scope := FastHTTPRequireAnyScopeWildcard([]string{"admin", "write"}, WithScopeErrorHandler(func(c *fasthttp.RequestCtx, statusCode int, errCode, errDesc string) {
+	scope := FastHTTPRequireAnyScopeWildcard([]string{"svc:admin:manage", "svc:data:write"}, WithScopeErrorHandler(func(c *fasthttp.RequestCtx, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		c.SetStatusCode(statusCode)
 		c.SetBodyString(errCode + ": " + errDesc)
@@ -589,14 +589,14 @@ func TestFastHTTPRequireAnyScopeWildcard_CustomErrorHandler(t *testing.T) {
 
 func TestFastHTTPRequireAnyScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:data:read"}})
 
-	FastHTTPRequireAnyScopeWildcard([]string{"admin", "write"})(func(_ *fasthttp.RequestCtx) {})(ctx)
+	FastHTTPRequireAnyScopeWildcard([]string{"svc:admin:manage", "svc:data:write"})(func(_ *fasthttp.RequestCtx) {})(ctx)
 
 	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
 	wwwAuth := string(ctx.Response.Header.Peek("WWW-Authenticate"))
 	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
-	assert.Contains(t, wwwAuth, "admin, write")
+	assert.Contains(t, wwwAuth, "svc:admin:manage, svc:data:write")
 }
 
 func TestFastHTTPBearerAuth_MiddlewareChain_WildcardScope(t *testing.T) {
@@ -645,7 +645,7 @@ func TestFastHTTPRequireAnyScopeWildcard_DefensiveScopesCopy(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
 	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"admin:*"}})
 
-	scopes := []string{"admin:read", "write"}
+	scopes := []string{"admin:read", "svc:data:write"}
 	mw := FastHTTPRequireAnyScopeWildcard(scopes)
 
 	// Mutate original slice after middleware creation
@@ -662,7 +662,7 @@ func TestFastHTTPRequireScopeWildcard_WrongTypeInContext(t *testing.T) {
 	ctx.SetUserValue(DefaultClaimsKey, "not-a-claims-pointer")
 
 	called := false
-	FastHTTPRequireScopeWildcard("read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireScopeWildcard("svc:data:read")(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.False(t, called)
 	assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
@@ -676,7 +676,7 @@ func TestFastHTTPRequireAnyScopeWildcard_WrongTypeInContext(t *testing.T) {
 	ctx.SetUserValue(DefaultClaimsKey, 42)
 
 	called := false
-	FastHTTPRequireAnyScopeWildcard([]string{"read"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireAnyScopeWildcard([]string{"svc:data:read"})(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.False(t, called)
 	assert.Equal(t, fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
@@ -690,7 +690,7 @@ func TestFastHTTPRequireAnyScopeWildcard_WrongTypeInContext(t *testing.T) {
 func TestFastHTTPNoopAuth_InjectsClaims(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "noop-client",
-		Scopes:   []string{"read", "write"},
+		Scopes:   []string{"svc:data:read", "svc:data:write"},
 	}
 	mw := FastHTTPNoopAuth(defaultClaims)
 
@@ -698,7 +698,7 @@ func TestFastHTTPNoopAuth_InjectsClaims(t *testing.T) {
 	mw(func(c *fasthttp.RequestCtx) {
 		claims := c.UserValue(DefaultClaimsKey).(*Claims)
 		assert.Equal(t, "noop-client", claims.ClientID)
-		assert.Equal(t, []string{"read", "write"}, claims.Scopes)
+		assert.Equal(t, []string{"svc:data:read", "svc:data:write"}, claims.Scopes)
 		assert.Equal(t, "noop-client", c.UserValue(DefaultClientIDKey).(string))
 	})(ctx)
 }
@@ -706,7 +706,7 @@ func TestFastHTTPNoopAuth_InjectsClaims(t *testing.T) {
 func TestFastHTTPNoopAuth_DeepCopy(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "original",
-		Scopes:   []string{"read"},
+		Scopes:   []string{"svc:data:read"},
 	}
 	mw := FastHTTPNoopAuth(defaultClaims)
 
@@ -723,12 +723,12 @@ func TestFastHTTPNoopAuth_DeepCopy(t *testing.T) {
 	mw(func(c *fasthttp.RequestCtx) {
 		claims := c.UserValue(DefaultClaimsKey).(*Claims)
 		assert.Equal(t, "original", claims.ClientID)
-		assert.Equal(t, []string{"read"}, claims.Scopes)
+		assert.Equal(t, []string{"svc:data:read"}, claims.Scopes)
 	})(ctx2)
 
 	// Original unchanged
 	assert.Equal(t, "original", defaultClaims.ClientID)
-	assert.Equal(t, []string{"read"}, defaultClaims.Scopes)
+	assert.Equal(t, []string{"svc:data:read"}, defaultClaims.Scopes)
 }
 
 func TestFastHTTPNoopAuth_ContextBridge(t *testing.T) {
@@ -765,7 +765,7 @@ func TestFastHTTPNoopScope_PassesThrough(t *testing.T) {
 func TestFastHTTPNoopAuth_ConcurrentDeepCopy(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "concurrent-client",
-		Scopes:   []string{"read", "write"},
+		Scopes:   []string{"svc:data:read", "svc:data:write"},
 	}
 	mw := FastHTTPNoopAuth(defaultClaims)
 
@@ -790,17 +790,17 @@ func TestFastHTTPNoopAuth_ConcurrentDeepCopy(t *testing.T) {
 
 	// Original must be unchanged after concurrent mutations.
 	assert.Equal(t, "concurrent-client", defaultClaims.ClientID)
-	assert.Equal(t, []string{"read", "write"}, defaultClaims.Scopes)
+	assert.Equal(t, []string{"svc:data:read", "svc:data:write"}, defaultClaims.Scopes)
 }
 
 // --- QA: Coverage Gap Tests ---
 
 func TestFastHTTPRequireAnyScope_CustomClaimsKey(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue("custom_claims", &Claims{Scopes: []string{"admin", "write"}})
+	ctx.SetUserValue("custom_claims", &Claims{Scopes: []string{"svc:admin:manage", "svc:data:write"}})
 
 	called := false
-	FastHTTPRequireAnyScope([]string{"write", "delete"}, WithScopeClaimsKey("custom_claims"))(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
+	FastHTTPRequireAnyScope([]string{"svc:data:write", "svc:data:delete"}, WithScopeClaimsKey("custom_claims"))(func(_ *fasthttp.RequestCtx) { called = true })(ctx)
 
 	assert.True(t, called)
 }
@@ -840,7 +840,7 @@ func TestFastHTTPBearerAuth_ShortAuthHeader(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_AllCustomOptionsCombined(t *testing.T) {
-	claims := &Claims{ClientID: "combo-client", Scopes: []string{"admin"}}
+	claims := &Claims{ClientID: "combo-client", Scopes: []string{"svc:admin:manage"}}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
@@ -870,7 +870,7 @@ func TestFastHTTPBearerAuth_AllCustomOptionsCombined(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_MiddlewareChain(t *testing.T) {
-	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read", "write"}}
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"svc:data:read", "svc:data:write"}}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
@@ -878,7 +878,7 @@ func TestFastHTTPBearerAuth_MiddlewareChain(t *testing.T) {
 	}
 
 	auth := FastHTTPBearerAuth(validator)
-	scope := FastHTTPRequireScope("read")
+	scope := FastHTTPRequireScope("svc:data:read")
 
 	handlerCalled := false
 	handler := func(_ *fasthttp.RequestCtx) { handlerCalled = true }
@@ -892,7 +892,7 @@ func TestFastHTTPBearerAuth_MiddlewareChain(t *testing.T) {
 }
 
 func TestFastHTTPBearerAuth_MiddlewareChain_ScopeDenied(t *testing.T) {
-	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read"}}
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"svc:data:read"}}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
@@ -900,7 +900,7 @@ func TestFastHTTPBearerAuth_MiddlewareChain_ScopeDenied(t *testing.T) {
 	}
 
 	auth := FastHTTPBearerAuth(validator)
-	scope := FastHTTPRequireScope("admin")
+	scope := FastHTTPRequireScope("svc:admin:manage")
 
 	handlerCalled := false
 	handler := func(_ *fasthttp.RequestCtx) { handlerCalled = true }
@@ -1030,9 +1030,9 @@ func TestFastHTTPBearerAuth_WWWAuthenticateHeader_InvalidToken(t *testing.T) {
 
 func TestFastHTTPRequireScope_WWWAuthenticateHeader_403(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:data:read"}})
 
-	FastHTTPRequireScope("admin")(func(_ *fasthttp.RequestCtx) {})(ctx)
+	FastHTTPRequireScope("svc:admin:manage")(func(_ *fasthttp.RequestCtx) {})(ctx)
 
 	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
 	wwwAuth := string(ctx.Response.Header.Peek("WWW-Authenticate"))
@@ -1110,10 +1110,10 @@ func TestFastHTTPBearerAuth_WhitespaceOnlyTokenEmpty(t *testing.T) {
 
 func TestFastHTTPRequireScope_CustomErrorHandler(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:data:read"}})
 
 	customCalled := false
-	scope := FastHTTPRequireScope("admin", WithScopeErrorHandler(func(c *fasthttp.RequestCtx, statusCode int, errCode, errDesc string) {
+	scope := FastHTTPRequireScope("svc:admin:manage", WithScopeErrorHandler(func(c *fasthttp.RequestCtx, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		c.SetStatusCode(statusCode)
 		c.SetBodyString(errCode + ": " + errDesc)
@@ -1123,15 +1123,15 @@ func TestFastHTTPRequireScope_CustomErrorHandler(t *testing.T) {
 
 	assert.True(t, customCalled, "scope middleware should use custom error handler")
 	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())
-	assert.Equal(t, "insufficient_scope: Required scope: admin", string(ctx.Response.Body()))
+	assert.Equal(t, "insufficient_scope: Required scope: svc:admin:manage", string(ctx.Response.Body()))
 }
 
 func TestFastHTTPRequireAnyScope_CustomErrorHandler(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:data:read"}})
 
 	customCalled := false
-	scope := FastHTTPRequireAnyScope([]string{"admin", "write"}, WithScopeErrorHandler(func(c *fasthttp.RequestCtx, statusCode int, errCode, errDesc string) {
+	scope := FastHTTPRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"}, WithScopeErrorHandler(func(c *fasthttp.RequestCtx, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		c.SetStatusCode(statusCode)
 		c.SetBodyString(errCode + ": " + errDesc)
@@ -1145,9 +1145,9 @@ func TestFastHTTPRequireAnyScope_CustomErrorHandler(t *testing.T) {
 
 func TestFastHTTPRequireAnyScope_DefensiveScopesCopy(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"admin"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:admin:manage"}})
 
-	scopes := []string{"admin", "write"}
+	scopes := []string{"svc:admin:manage", "svc:data:write"}
 	mw := FastHTTPRequireAnyScope(scopes)
 
 	// Mutate original slice after middleware creation
@@ -1230,10 +1230,10 @@ func TestFastHTTPNoopScope_ReturnsExactHandler(t *testing.T) {
 
 func TestFastHTTPScopeErrorHandler_NilUsesDefault(t *testing.T) {
 	ctx := &fasthttp.RequestCtx{}
-	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"read"}})
+	ctx.SetUserValue(DefaultClaimsKey, &Claims{Scopes: []string{"svc:data:read"}})
 
 	// WithScopeErrorHandler(nil) should fall back to default JSON handler
-	scope := FastHTTPRequireScope("admin", WithScopeErrorHandler(nil))
+	scope := FastHTTPRequireScope("svc:admin:manage", WithScopeErrorHandler(nil))
 	scope(func(_ *fasthttp.RequestCtx) {})(ctx)
 
 	assert.Equal(t, fasthttp.StatusForbidden, ctx.Response.StatusCode())

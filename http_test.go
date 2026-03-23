@@ -118,7 +118,7 @@ func TestHTTPBearerAuth_MaxLengthTokenAccepted(t *testing.T) {
 func TestHTTPBearerAuth_ValidToken(t *testing.T) {
 	expectedClaims := &Claims{
 		ClientID: "test-client-uuid",
-		Scopes:   []string{"read", "write"},
+		Scopes:   []string{"svc:data:read", "svc:data:write"},
 	}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
@@ -145,7 +145,7 @@ func TestHTTPBearerAuth_ValidToken(t *testing.T) {
 func TestHTTPBearerAuth_ClaimsRetrievableViaContext(t *testing.T) {
 	expectedClaims := &Claims{
 		ClientID: "ctx-client",
-		Scopes:   []string{"admin"},
+		Scopes:   []string{"svc:admin:manage"},
 	}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
@@ -435,7 +435,7 @@ func TestHTTPBearerAuth_ValidatorReceivesRequestContext(t *testing.T) {
 // --- HTTPRequireScope Tests ---
 
 func TestHTTPRequireScope_ScopePresent(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read", "write"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
@@ -443,13 +443,13 @@ func TestHTTPRequireScope_ScopePresent(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	called := false
-	HTTPRequireScope("read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+	HTTPRequireScope("svc:data:read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.True(t, called)
 }
 
 func TestHTTPRequireScope_ScopeMissing(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
@@ -457,13 +457,13 @@ func TestHTTPRequireScope_ScopeMissing(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	called := false
-	HTTPRequireScope("admin")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+	HTTPRequireScope("svc:admin:manage")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.False(t, called)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	resp := parseHTTPErrorResponse(t, rec)
 	assert.Equal(t, "insufficient_scope", resp.Error)
-	assert.Equal(t, "Required scope: admin", resp.ErrorDescription)
+	assert.Equal(t, "Required scope: svc:admin:manage", resp.ErrorDescription)
 }
 
 func TestHTTPRequireScope_NoClaims(t *testing.T) {
@@ -471,7 +471,7 @@ func TestHTTPRequireScope_NoClaims(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	called := false
-	HTTPRequireScope("read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+	HTTPRequireScope("svc:data:read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.False(t, called)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -489,14 +489,14 @@ func TestHTTPRequireScope_EmptyScopePanics(t *testing.T) {
 }
 
 func TestHTTPRequireScope_WWWAuthenticateHeader_403(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req = req.WithContext(ctx)
 
-	HTTPRequireScope("admin")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})).ServeHTTP(rec, req)
+	HTTPRequireScope("svc:admin:manage")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})).ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	wwwAuth := rec.Header().Get("WWW-Authenticate")
@@ -504,7 +504,7 @@ func TestHTTPRequireScope_WWWAuthenticateHeader_403(t *testing.T) {
 }
 
 func TestHTTPRequireScope_SpecialCharScope(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
@@ -519,7 +519,7 @@ func TestHTTPRequireScope_SpecialCharScope(t *testing.T) {
 }
 
 func TestHTTPRequireScope_QuotedStringEscaping(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
@@ -535,7 +535,7 @@ func TestHTTPRequireScope_QuotedStringEscaping(t *testing.T) {
 }
 
 func TestHTTPRequireScope_CustomErrorHandler(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
@@ -543,7 +543,7 @@ func TestHTTPRequireScope_CustomErrorHandler(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	customCalled := false
-	scope := HTTPRequireScope("admin", WithHTTPScopeErrorHandler(func(w http.ResponseWriter, _ *http.Request, statusCode int, errCode, errDesc string) {
+	scope := HTTPRequireScope("svc:admin:manage", WithHTTPScopeErrorHandler(func(w http.ResponseWriter, _ *http.Request, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		w.WriteHeader(statusCode)
 		_, _ = w.Write([]byte(errCode + ": " + errDesc))
@@ -553,18 +553,18 @@ func TestHTTPRequireScope_CustomErrorHandler(t *testing.T) {
 
 	assert.True(t, customCalled)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
-	assert.Equal(t, "insufficient_scope: Required scope: admin", rec.Body.String())
+	assert.Equal(t, "insufficient_scope: Required scope: svc:admin:manage", rec.Body.String())
 }
 
 func TestHTTPScopeErrorHandler_NilUsesDefault(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req = req.WithContext(ctx)
 
-	scope := HTTPRequireScope("admin", WithHTTPScopeErrorHandler(nil))
+	scope := HTTPRequireScope("svc:admin:manage", WithHTTPScopeErrorHandler(nil))
 	scope(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})).ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusForbidden, rec.Code)
@@ -576,7 +576,7 @@ func TestHTTPScopeErrorHandler_NilUsesDefault(t *testing.T) {
 // --- HTTPRequireAnyScope Tests ---
 
 func TestHTTPRequireAnyScope_AnyMatch(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read", "write"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
@@ -584,13 +584,13 @@ func TestHTTPRequireAnyScope_AnyMatch(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	called := false
-	HTTPRequireAnyScope([]string{"admin", "write"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+	HTTPRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.True(t, called)
 }
 
 func TestHTTPRequireAnyScope_NoneMatch(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
@@ -598,13 +598,13 @@ func TestHTTPRequireAnyScope_NoneMatch(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	called := false
-	HTTPRequireAnyScope([]string{"admin", "write"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+	HTTPRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.False(t, called)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	resp := parseHTTPErrorResponse(t, rec)
 	assert.Equal(t, "insufficient_scope", resp.Error)
-	assert.Equal(t, "Required one of scopes: admin, write", resp.ErrorDescription)
+	assert.Equal(t, "Required one of scopes: svc:admin:manage, svc:data:write", resp.ErrorDescription)
 }
 
 func TestHTTPRequireAnyScope_NoClaims(t *testing.T) {
@@ -612,7 +612,7 @@ func TestHTTPRequireAnyScope_NoClaims(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	called := false
-	HTTPRequireAnyScope([]string{"read"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+	HTTPRequireAnyScope([]string{"svc:data:read"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.False(t, called)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -633,10 +633,10 @@ func TestHTTPRequireAnyScope_NilScopesPanics(t *testing.T) {
 }
 
 func TestHTTPRequireAnyScope_DefensiveScopesCopy(t *testing.T) {
-	claims := &Claims{Scopes: []string{"admin"}}
+	claims := &Claims{Scopes: []string{"svc:admin:manage"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
-	scopes := []string{"admin", "write"}
+	scopes := []string{"svc:admin:manage", "svc:data:write"}
 	mw := HTTPRequireAnyScope(scopes)
 
 	// Mutate original slice element after middleware creation.
@@ -655,7 +655,7 @@ func TestHTTPRequireAnyScope_DefensiveScopesCopy(t *testing.T) {
 }
 
 func TestHTTPRequireAnyScope_CustomErrorHandler(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
@@ -663,7 +663,7 @@ func TestHTTPRequireAnyScope_CustomErrorHandler(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	customCalled := false
-	scope := HTTPRequireAnyScope([]string{"admin", "write"}, WithHTTPScopeErrorHandler(func(w http.ResponseWriter, _ *http.Request, statusCode int, errCode, errDesc string) {
+	scope := HTTPRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"}, WithHTTPScopeErrorHandler(func(w http.ResponseWriter, _ *http.Request, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		w.WriteHeader(statusCode)
 		_, _ = w.Write([]byte(errCode + ": " + errDesc))
@@ -673,23 +673,23 @@ func TestHTTPRequireAnyScope_CustomErrorHandler(t *testing.T) {
 
 	assert.True(t, customCalled)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
-	assert.Equal(t, "insufficient_scope: Required one of scopes: admin, write", rec.Body.String())
+	assert.Equal(t, "insufficient_scope: Required one of scopes: svc:admin:manage, svc:data:write", rec.Body.String())
 }
 
 func TestHTTPRequireAnyScope_WWWAuthenticateHeader_403(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req = req.WithContext(ctx)
 
-	HTTPRequireAnyScope([]string{"admin", "write"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})).ServeHTTP(rec, req)
+	HTTPRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})).ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	wwwAuth := rec.Header().Get("WWW-Authenticate")
 	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
-	assert.Contains(t, wwwAuth, "admin, write")
+	assert.Contains(t, wwwAuth, "svc:admin:manage, svc:data:write")
 }
 
 // --- HTTPNoopAuth Tests ---
@@ -697,7 +697,7 @@ func TestHTTPRequireAnyScope_WWWAuthenticateHeader_403(t *testing.T) {
 func TestHTTPNoopAuth_InjectsClaims(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "noop-client",
-		Scopes:   []string{"read", "write"},
+		Scopes:   []string{"svc:data:read", "svc:data:write"},
 	}
 	mw := HTTPNoopAuth(defaultClaims)
 
@@ -707,14 +707,14 @@ func TestHTTPNoopAuth_InjectsClaims(t *testing.T) {
 		claims, ok := ClaimsFromContext(r.Context())
 		assert.True(t, ok)
 		assert.Equal(t, "noop-client", claims.ClientID)
-		assert.Equal(t, []string{"read", "write"}, claims.Scopes)
+		assert.Equal(t, []string{"svc:data:read", "svc:data:write"}, claims.Scopes)
 	})).ServeHTTP(rec, req)
 }
 
 func TestHTTPNoopAuth_DeepCopy(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "original",
-		Scopes:   []string{"read"},
+		Scopes:   []string{"svc:data:read"},
 	}
 	mw := HTTPNoopAuth(defaultClaims)
 
@@ -733,12 +733,12 @@ func TestHTTPNoopAuth_DeepCopy(t *testing.T) {
 	mw(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		claims, _ := ClaimsFromContext(r.Context())
 		assert.Equal(t, "original", claims.ClientID)
-		assert.Equal(t, []string{"read"}, claims.Scopes)
+		assert.Equal(t, []string{"svc:data:read"}, claims.Scopes)
 	})).ServeHTTP(rec2, req2)
 
 	// Original unchanged
 	assert.Equal(t, "original", defaultClaims.ClientID)
-	assert.Equal(t, []string{"read"}, defaultClaims.Scopes)
+	assert.Equal(t, []string{"svc:data:read"}, defaultClaims.Scopes)
 }
 
 func TestHTTPNoopAuth_NilDefaultClaimsPanics(t *testing.T) {
@@ -750,7 +750,7 @@ func TestHTTPNoopAuth_NilDefaultClaimsPanics(t *testing.T) {
 func TestHTTPNoopAuth_ConcurrentDeepCopy(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "concurrent-client",
-		Scopes:   []string{"read", "write"},
+		Scopes:   []string{"svc:data:read", "svc:data:write"},
 	}
 	mw := HTTPNoopAuth(defaultClaims)
 
@@ -774,7 +774,7 @@ func TestHTTPNoopAuth_ConcurrentDeepCopy(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, "concurrent-client", defaultClaims.ClientID)
-	assert.Equal(t, []string{"read", "write"}, defaultClaims.Scopes)
+	assert.Equal(t, []string{"svc:data:read", "svc:data:write"}, defaultClaims.Scopes)
 }
 
 func TestHTTPNoopAuth_DeepCopyAudience(t *testing.T) {
@@ -876,7 +876,7 @@ func TestHTTPNoopScope_ReturnsExactHandler(t *testing.T) {
 // --- Middleware Chain Tests ---
 
 func TestHTTPMiddlewareChain_BearerAuth_RequireScope(t *testing.T) {
-	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read", "write"}}
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"svc:data:read", "svc:data:write"}}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
@@ -884,7 +884,7 @@ func TestHTTPMiddlewareChain_BearerAuth_RequireScope(t *testing.T) {
 	}
 
 	auth := HTTPBearerAuth(validator)
-	scope := HTTPRequireScope("read")
+	scope := HTTPRequireScope("svc:data:read")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -900,7 +900,7 @@ func TestHTTPMiddlewareChain_BearerAuth_RequireScope(t *testing.T) {
 }
 
 func TestHTTPMiddlewareChain_BearerAuth_RequireScope_Denied(t *testing.T) {
-	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read"}}
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"svc:data:read"}}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
@@ -908,7 +908,7 @@ func TestHTTPMiddlewareChain_BearerAuth_RequireScope_Denied(t *testing.T) {
 	}
 
 	auth := HTTPBearerAuth(validator)
-	scope := HTTPRequireScope("admin")
+	scope := HTTPRequireScope("svc:admin:manage")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -924,7 +924,7 @@ func TestHTTPMiddlewareChain_BearerAuth_RequireScope_Denied(t *testing.T) {
 }
 
 func TestHTTPMiddlewareChain_BearerAuth_RequireAnyScope(t *testing.T) {
-	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read", "write"}}
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"svc:data:read", "svc:data:write"}}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
@@ -932,7 +932,7 @@ func TestHTTPMiddlewareChain_BearerAuth_RequireAnyScope(t *testing.T) {
 	}
 
 	auth := HTTPBearerAuth(validator)
-	scope := HTTPRequireAnyScope([]string{"admin", "write"})
+	scope := HTTPRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -950,11 +950,11 @@ func TestHTTPMiddlewareChain_BearerAuth_RequireAnyScope(t *testing.T) {
 func TestHTTPMiddlewareChain_NoopAuth_RequireScope(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "noop-chain",
-		Scopes:   []string{"read", "admin"},
+		Scopes:   []string{"svc:data:read", "svc:admin:manage"},
 	}
 
 	auth := HTTPNoopAuth(defaultClaims)
-	scope := HTTPRequireScope("admin")
+	scope := HTTPRequireScope("svc:admin:manage")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -976,11 +976,11 @@ func TestHTTPMiddlewareChain_NoopAuth_RequireScope(t *testing.T) {
 func TestHTTPMiddlewareChain_NoopAuth_RequireAnyScope(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "noop-any-chain",
-		Scopes:   []string{"read", "write"},
+		Scopes:   []string{"svc:data:read", "svc:data:write"},
 	}
 
 	auth := HTTPNoopAuth(defaultClaims)
-	scope := HTTPRequireAnyScope([]string{"admin", "write"})
+	scope := HTTPRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -1002,7 +1002,7 @@ func TestHTTPMiddlewareChain_NoopAuth_RequireAnyScope(t *testing.T) {
 func TestHTTPMiddlewareChain_NoopAuth_NoopScope(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "noop-full",
-		Scopes:   []string{"dev"},
+		Scopes:   []string{"svc:data:dev"},
 	}
 
 	auth := HTTPNoopAuth(defaultClaims)
@@ -1028,7 +1028,7 @@ func TestHTTPMiddlewareChain_NoopAuth_NoopScope(t *testing.T) {
 func TestHTTPNoopAuth_IgnoresAuthorizationHeader(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "noop-ignore",
-		Scopes:   []string{"read"},
+		Scopes:   []string{"svc:data:read"},
 	}
 	mw := HTTPNoopAuth(defaultClaims)
 
@@ -1049,7 +1049,7 @@ func TestHTTPNoopAuth_IgnoresAuthorizationHeader(t *testing.T) {
 }
 
 func TestHTTPRequireAnyScope_SingleScope(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
@@ -1057,13 +1057,13 @@ func TestHTTPRequireAnyScope_SingleScope(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	called := false
-	HTTPRequireAnyScope([]string{"admin"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+	HTTPRequireAnyScope([]string{"svc:admin:manage"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.False(t, called)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	resp := parseHTTPErrorResponse(t, rec)
 	assert.Equal(t, "insufficient_scope", resp.Error)
-	assert.Equal(t, "Required one of scopes: admin", resp.ErrorDescription)
+	assert.Equal(t, "Required one of scopes: svc:admin:manage", resp.ErrorDescription)
 }
 
 // --- HTTPRequireScopeWildcard Tests ---
@@ -1121,7 +1121,7 @@ func TestHTTPRequireScopeWildcard_NoClaims(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	called := false
-	HTTPRequireScopeWildcard("read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+	HTTPRequireScopeWildcard("svc:data:read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.False(t, called)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -1143,7 +1143,7 @@ func TestHTTPRequireScopeWildcard_NilClaimsInContext(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	called := false
-	HTTPRequireScopeWildcard("read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+	HTTPRequireScopeWildcard("svc:data:read")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.False(t, called)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -1159,7 +1159,7 @@ func TestHTTPRequireAnyScopeWildcard_NilClaimsInContext(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	called := false
-	HTTPRequireAnyScopeWildcard([]string{"read"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+	HTTPRequireAnyScopeWildcard([]string{"svc:data:read"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.False(t, called)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -1168,7 +1168,7 @@ func TestHTTPRequireAnyScopeWildcard_NilClaimsInContext(t *testing.T) {
 }
 
 func TestHTTPRequireScopeWildcard_CustomErrorHandler(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
@@ -1176,7 +1176,7 @@ func TestHTTPRequireScopeWildcard_CustomErrorHandler(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	customCalled := false
-	scope := HTTPRequireScopeWildcard("admin", WithHTTPScopeErrorHandler(func(w http.ResponseWriter, _ *http.Request, statusCode int, errCode, errDesc string) {
+	scope := HTTPRequireScopeWildcard("svc:admin:manage", WithHTTPScopeErrorHandler(func(w http.ResponseWriter, _ *http.Request, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		w.WriteHeader(statusCode)
 		_, _ = w.Write([]byte(errCode + ": " + errDesc))
@@ -1186,23 +1186,23 @@ func TestHTTPRequireScopeWildcard_CustomErrorHandler(t *testing.T) {
 
 	assert.True(t, customCalled)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
-	assert.Equal(t, "insufficient_scope: Required scope: admin", rec.Body.String())
+	assert.Equal(t, "insufficient_scope: Required scope: svc:admin:manage", rec.Body.String())
 }
 
 func TestHTTPRequireScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req = req.WithContext(ctx)
 
-	HTTPRequireScopeWildcard("admin")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})).ServeHTTP(rec, req)
+	HTTPRequireScopeWildcard("svc:admin:manage")(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})).ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	wwwAuth := rec.Header().Get("WWW-Authenticate")
 	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
-	assert.Contains(t, wwwAuth, "Required scope: admin")
+	assert.Contains(t, wwwAuth, "Required scope: svc:admin:manage")
 }
 
 // --- HTTPRequireAnyScopeWildcard Tests ---
@@ -1230,13 +1230,13 @@ func TestHTTPRequireAnyScopeWildcard_NoneMatch(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	called := false
-	HTTPRequireAnyScopeWildcard([]string{"admin", "write"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+	HTTPRequireAnyScopeWildcard([]string{"svc:admin:manage", "svc:data:write"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.False(t, called)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	resp := parseHTTPErrorResponse(t, rec)
 	assert.Equal(t, "insufficient_scope", resp.Error)
-	assert.Equal(t, "Required one of scopes: admin, write", resp.ErrorDescription)
+	assert.Equal(t, "Required one of scopes: svc:admin:manage, svc:data:write", resp.ErrorDescription)
 }
 
 func TestHTTPRequireAnyScopeWildcard_NoClaims(t *testing.T) {
@@ -1244,7 +1244,7 @@ func TestHTTPRequireAnyScopeWildcard_NoClaims(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	called := false
-	HTTPRequireAnyScopeWildcard([]string{"read"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
+	HTTPRequireAnyScopeWildcard([]string{"svc:data:read"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { called = true })).ServeHTTP(rec, req)
 
 	assert.False(t, called)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -1263,7 +1263,7 @@ func TestHTTPRequireAnyScopeWildcard_NilScopesPanics(t *testing.T) {
 }
 
 func TestHTTPRequireAnyScopeWildcard_CustomErrorHandler(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
@@ -1271,7 +1271,7 @@ func TestHTTPRequireAnyScopeWildcard_CustomErrorHandler(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	customCalled := false
-	scope := HTTPRequireAnyScopeWildcard([]string{"admin", "write"}, WithHTTPScopeErrorHandler(func(w http.ResponseWriter, _ *http.Request, statusCode int, errCode, errDesc string) {
+	scope := HTTPRequireAnyScopeWildcard([]string{"svc:admin:manage", "svc:data:write"}, WithHTTPScopeErrorHandler(func(w http.ResponseWriter, _ *http.Request, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		w.WriteHeader(statusCode)
 		_, _ = w.Write([]byte(errCode + ": " + errDesc))
@@ -1281,23 +1281,23 @@ func TestHTTPRequireAnyScopeWildcard_CustomErrorHandler(t *testing.T) {
 
 	assert.True(t, customCalled)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
-	assert.Equal(t, "insufficient_scope: Required one of scopes: admin, write", rec.Body.String())
+	assert.Equal(t, "insufficient_scope: Required one of scopes: svc:admin:manage, svc:data:write", rec.Body.String())
 }
 
 func TestHTTPRequireAnyScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req = req.WithContext(ctx)
 
-	HTTPRequireAnyScopeWildcard([]string{"admin", "write"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})).ServeHTTP(rec, req)
+	HTTPRequireAnyScopeWildcard([]string{"svc:admin:manage", "svc:data:write"})(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})).ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 	wwwAuth := rec.Header().Get("WWW-Authenticate")
 	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
-	assert.Contains(t, wwwAuth, "admin, write")
+	assert.Contains(t, wwwAuth, "svc:admin:manage, svc:data:write")
 }
 
 func TestHTTPMiddlewareChain_BearerAuth_RequireScopeWildcard(t *testing.T) {
@@ -1352,7 +1352,7 @@ func TestHTTPRequireAnyScopeWildcard_DefensiveScopesCopy(t *testing.T) {
 	claims := &Claims{Scopes: []string{"admin:*"}}
 	ctx := ContextWithClaims(context.Background(), claims)
 
-	scopes := []string{"admin:read", "write"}
+	scopes := []string{"admin:read", "svc:data:write"}
 	mw := HTTPRequireAnyScopeWildcard(scopes)
 
 	// Mutate original slice after middleware creation

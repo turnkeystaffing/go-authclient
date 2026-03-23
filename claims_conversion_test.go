@@ -12,7 +12,7 @@ func TestClaimsFromIntrospection_AllFieldsPopulated(t *testing.T) {
 	resp := &IntrospectionResponse{
 		Active:   true,
 		Sub:      "user-123",
-		Scope:    "read write admin",
+		Scope:    "svc:data:read svc:data:write svc:admin:manage",
 		Email:    "user@example.com",
 		Username: "jdoe",
 		ClientID: "client-abc",
@@ -24,7 +24,7 @@ func TestClaimsFromIntrospection_AllFieldsPopulated(t *testing.T) {
 	assert.Equal(t, "client-abc", claims.ClientID)
 	assert.Equal(t, "user-123", claims.Subject)
 	assert.Equal(t, "user-123", claims.UserID)
-	assert.Equal(t, []string{"read", "write", "admin"}, claims.Scopes)
+	assert.Equal(t, []string{"svc:data:read", "svc:data:write", "svc:admin:manage"}, claims.Scopes)
 	assert.Equal(t, "user@example.com", claims.Email)
 	assert.Equal(t, "jdoe", claims.Username)
 	require.NotNil(t, claims.ExpiresAt)
@@ -90,7 +90,7 @@ func TestClaimsFromIntrospection_IssuerNotSet(t *testing.T) {
 		Active:   true,
 		Sub:      "user-1",
 		ClientID: "client-1",
-		Scope:    "read",
+		Scope:    "svc:data:read",
 	}
 
 	claims := ClaimsFromIntrospection(resp)
@@ -105,15 +105,15 @@ func TestClaimsFromIntrospection_ScopeCheckerIntegration(t *testing.T) {
 		Active:   true,
 		Sub:      "user-1",
 		ClientID: "client-1",
-		Scope:    "read write admin",
+		Scope:    "svc:data:read svc:data:write svc:admin:manage",
 	}
 
 	claims := ClaimsFromIntrospection(resp)
 
-	assert.True(t, HasScope(claims, "read"))
-	assert.True(t, HasScope(claims, "admin"))
-	assert.False(t, HasScope(claims, "delete"))
-	assert.True(t, HasAnyScope(claims, "delete", "write"))
+	assert.True(t, HasScope(claims, "svc:data:read"))
+	assert.True(t, HasScope(claims, "svc:admin:manage"))
+	assert.False(t, HasScope(claims, "svc:data:delete"))
+	assert.True(t, HasAnyScope(claims, "svc:data:delete", "svc:data:write"))
 }
 
 func TestClaimsFromIntrospection_WhitespaceOnlyScope(t *testing.T) {
@@ -129,7 +129,7 @@ func TestClaimsFromIntrospection_WhitespaceOnlyScope(t *testing.T) {
 	// strings.Split("   ", " ") produces 4 elements (N+1 for N delimiters):
 	// ["", "", "", ""]. HasAnyScope skips empty strings, so no scope matches.
 	assert.Equal(t, []string{"", "", "", ""}, claims.Scopes)
-	assert.False(t, HasAnyScope(claims, "read"))
+	assert.False(t, HasAnyScope(claims, "svc:data:read"))
 	assert.False(t, HasScope(claims, ""))
 }
 

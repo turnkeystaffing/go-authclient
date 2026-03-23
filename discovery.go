@@ -74,12 +74,7 @@ const maxTemplateNameLength = 255
 // maxValidationErrors is the maximum number of validation errors collected before truncation.
 const maxValidationErrors = 50
 
-// scopeNamePattern matches valid scope names: 2-3 colon-separated segments of lowercase
-// alphanumeric characters, underscores, and wildcards (*). The first segment is the service
-// code (validated separately by serviceCodePattern, which excludes wildcards).
-// CONTRACT: Must match get-native-auth's scopeNamePattern in
-// internal/scopes/validation/scope_validator.go. Divergence causes sync failures.
-var scopeNamePattern = regexp.MustCompile(`^[a-z0-9_]+(?::[a-z0-9_*]+){1,2}$`)
+// scopeNamePattern is defined in scope_validation.go (shared with scope checker).
 
 var serviceCodePattern = regexp.MustCompile(`^[a-z0-9_]+$`)
 

@@ -21,7 +21,7 @@ func TestInstrumentedGinBearerAuth_Success(t *testing.T) {
 
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
-			return &Claims{ClientID: "test", Scopes: []string{"read"}}, nil
+			return &Claims{ClientID: "test", Scopes: []string{"svc:data:read"}}, nil
 		},
 	}
 
@@ -119,13 +119,13 @@ func TestInstrumentedGinRequireScope_Pass(t *testing.T) {
 
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
-			return &Claims{ClientID: "test", Scopes: []string{"read", "write"}}, nil
+			return &Claims{ClientID: "test", Scopes: []string{"svc:data:read", "svc:data:write"}}, nil
 		},
 	}
 
 	r := gin.New()
 	r.Use(GinBearerAuth(validator))
-	r.Use(InstrumentedGinRequireScope("read", []InstrumentationOption{WithMeterProvider(mp)}))
+	r.Use(InstrumentedGinRequireScope("svc:data:read", []InstrumentationOption{WithMeterProvider(mp)}))
 	r.GET("/api", func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
@@ -141,7 +141,7 @@ func TestInstrumentedGinRequireScope_Pass(t *testing.T) {
 	rm := collectMetrics(t, reader)
 	assertCounterValue(t, rm, "authclient.middleware.scope.total", 1,
 		attribute.String("result", "pass"),
-		attribute.String("scope", "read"),
+		attribute.String("scope", "svc:data:read"),
 		attribute.String("framework", "gin"),
 	)
 }
@@ -151,13 +151,13 @@ func TestInstrumentedGinRequireScope_Denied(t *testing.T) {
 
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
-			return &Claims{ClientID: "test", Scopes: []string{"read"}}, nil
+			return &Claims{ClientID: "test", Scopes: []string{"svc:data:read"}}, nil
 		},
 	}
 
 	r := gin.New()
 	r.Use(GinBearerAuth(validator))
-	r.Use(InstrumentedGinRequireScope("admin", []InstrumentationOption{WithMeterProvider(mp)}))
+	r.Use(InstrumentedGinRequireScope("svc:admin:manage", []InstrumentationOption{WithMeterProvider(mp)}))
 	r.GET("/api", func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
@@ -173,7 +173,7 @@ func TestInstrumentedGinRequireScope_Denied(t *testing.T) {
 	rm := collectMetrics(t, reader)
 	assertCounterValue(t, rm, "authclient.middleware.scope.total", 1,
 		attribute.String("result", "denied"),
-		attribute.String("scope", "admin"),
+		attribute.String("scope", "svc:admin:manage"),
 		attribute.String("framework", "gin"),
 	)
 }

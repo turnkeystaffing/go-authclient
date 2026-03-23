@@ -107,7 +107,7 @@ func TestGinBearerAuth_OversizedToken(t *testing.T) {
 func TestGinBearerAuth_ValidToken_ClaimsInGinAndRequestContext(t *testing.T) {
 	expectedClaims := &Claims{
 		ClientID: "test-client-uuid",
-		Scopes:   []string{"read", "write"},
+		Scopes:   []string{"svc:data:read", "svc:data:write"},
 	}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, token string) (*Claims, error) {
@@ -464,14 +464,14 @@ func TestGinBearerAuth_CustomErrorHandlerWithoutAbort_ChainStops(t *testing.T) {
 // --- GinRequireScope Tests ---
 
 func TestGinRequireScope_ScopePresent(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read", "write"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireScope("read"))
+	router.Use(GinRequireScope("svc:data:read"))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -485,14 +485,14 @@ func TestGinRequireScope_ScopePresent(t *testing.T) {
 }
 
 func TestGinRequireScope_ScopeMissing(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireScope("admin"))
+	router.Use(GinRequireScope("svc:admin:manage"))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -505,12 +505,12 @@ func TestGinRequireScope_ScopeMissing(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "insufficient_scope", resp.Error)
-	assert.Equal(t, "Required scope: admin", resp.ErrorDescription)
+	assert.Equal(t, "Required scope: svc:admin:manage", resp.ErrorDescription)
 }
 
 func TestGinRequireScope_NoClaims(t *testing.T) {
 	router := gin.New()
-	router.Use(GinRequireScope("read"))
+	router.Use(GinRequireScope("svc:data:read"))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -535,7 +535,7 @@ func TestGinRequireScope_EmptyScopePanics(t *testing.T) {
 }
 
 func TestGinRequireScope_SpecialCharScope(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -556,14 +556,14 @@ func TestGinRequireScope_SpecialCharScope(t *testing.T) {
 }
 
 func TestGinRequireScope_CustomClaimsKey(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("my_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireScope("read", WithGinScopeClaimsKey("my_claims")))
+	router.Use(GinRequireScope("svc:data:read", WithGinScopeClaimsKey("my_claims")))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -576,7 +576,7 @@ func TestGinRequireScope_CustomClaimsKey(t *testing.T) {
 }
 
 func TestGinRequireScope_CustomErrorHandler(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	customCalled := false
 	var receivedErrCode, receivedErrDesc string
@@ -585,7 +585,7 @@ func TestGinRequireScope_CustomErrorHandler(t *testing.T) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireScope("admin", WithGinScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
+	router.Use(GinRequireScope("svc:admin:manage", WithGinScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		receivedErrCode = errCode
 		receivedErrDesc = errDesc
@@ -601,18 +601,18 @@ func TestGinRequireScope_CustomErrorHandler(t *testing.T) {
 	assert.True(t, customCalled)
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	assert.Equal(t, "insufficient_scope", receivedErrCode)
-	assert.Equal(t, "Required scope: admin", receivedErrDesc)
+	assert.Equal(t, "Required scope: svc:admin:manage", receivedErrDesc)
 }
 
 func TestGinRequireScope_WWWAuthenticateHeader_403(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireScope("admin"))
+	router.Use(GinRequireScope("svc:admin:manage"))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -627,14 +627,14 @@ func TestGinRequireScope_WWWAuthenticateHeader_403(t *testing.T) {
 // --- GinRequireAnyScope Tests ---
 
 func TestGinRequireAnyScope_AnyMatch(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read", "write"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireAnyScope([]string{"admin", "write"}))
+	router.Use(GinRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"}))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -647,14 +647,14 @@ func TestGinRequireAnyScope_AnyMatch(t *testing.T) {
 }
 
 func TestGinRequireAnyScope_NoneMatch(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireAnyScope([]string{"admin", "write"}))
+	router.Use(GinRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -664,12 +664,12 @@ func TestGinRequireAnyScope_NoneMatch(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "insufficient_scope", resp.Error)
-	assert.Equal(t, "Required one of scopes: admin, write", resp.ErrorDescription)
+	assert.Equal(t, "Required one of scopes: svc:admin:manage, svc:data:write", resp.ErrorDescription)
 }
 
 func TestGinRequireAnyScope_NoClaims(t *testing.T) {
 	router := gin.New()
-	router.Use(GinRequireAnyScope([]string{"read"}))
+	router.Use(GinRequireAnyScope([]string{"svc:data:read"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -694,9 +694,9 @@ func TestGinRequireAnyScope_NilScopesPanics(t *testing.T) {
 }
 
 func TestGinRequireAnyScope_DefensiveScopesCopy(t *testing.T) {
-	claims := &Claims{Scopes: []string{"admin"}}
+	claims := &Claims{Scopes: []string{"svc:admin:manage"}}
 
-	scopes := []string{"admin", "write"}
+	scopes := []string{"svc:admin:manage", "svc:data:write"}
 	mw := GinRequireAnyScope(scopes)
 
 	// Mutate original slice after middleware creation
@@ -720,7 +720,7 @@ func TestGinRequireAnyScope_DefensiveScopesCopy(t *testing.T) {
 }
 
 func TestGinRequireAnyScope_CustomErrorHandler(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	customCalled := false
 	var receivedErrCode, receivedErrDesc string
@@ -729,7 +729,7 @@ func TestGinRequireAnyScope_CustomErrorHandler(t *testing.T) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireAnyScope([]string{"admin", "write"}, WithGinScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
+	router.Use(GinRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"}, WithGinScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		receivedErrCode = errCode
 		receivedErrDesc = errDesc
@@ -744,18 +744,18 @@ func TestGinRequireAnyScope_CustomErrorHandler(t *testing.T) {
 	assert.True(t, customCalled)
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	assert.Equal(t, "insufficient_scope", receivedErrCode)
-	assert.Equal(t, "Required one of scopes: admin, write", receivedErrDesc)
+	assert.Equal(t, "Required one of scopes: svc:admin:manage, svc:data:write", receivedErrDesc)
 }
 
 func TestGinRequireAnyScope_WWWAuthenticateHeader_403(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireAnyScope([]string{"admin", "write"}))
+	router.Use(GinRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -765,18 +765,18 @@ func TestGinRequireAnyScope_WWWAuthenticateHeader_403(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	wwwAuth := w.Header().Get("WWW-Authenticate")
 	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
-	assert.Contains(t, wwwAuth, "admin, write")
+	assert.Contains(t, wwwAuth, "svc:admin:manage, svc:data:write")
 }
 
 func TestGinScopeErrorHandler_NilUsesDefault(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireScope("admin", WithGinScopeErrorHandler(nil)))
+	router.Use(GinRequireScope("svc:admin:manage", WithGinScopeErrorHandler(nil)))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -800,7 +800,7 @@ func TestGinScopeClaimsKey_EmptyPanics(t *testing.T) {
 func TestGinNoopAuth_InjectsClaims(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "noop-client",
-		Scopes:   []string{"read", "write"},
+		Scopes:   []string{"svc:data:read", "svc:data:write"},
 	}
 
 	router := gin.New()
@@ -812,7 +812,7 @@ func TestGinNoopAuth_InjectsClaims(t *testing.T) {
 		assert.True(t, exists)
 		ginClaims := val.(*Claims)
 		assert.Equal(t, "noop-client", ginClaims.ClientID)
-		assert.Equal(t, []string{"read", "write"}, ginClaims.Scopes)
+		assert.Equal(t, []string{"svc:data:read", "svc:data:write"}, ginClaims.Scopes)
 
 		// request context path
 		ctxClaims, ok := ClaimsFromContext(c.Request.Context())
@@ -828,7 +828,7 @@ func TestGinNoopAuth_InjectsClaims(t *testing.T) {
 func TestGinNoopAuth_DeepCopy(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "original",
-		Scopes:   []string{"read"},
+		Scopes:   []string{"svc:data:read"},
 	}
 	noopMw := GinNoopAuth(defaultClaims)
 
@@ -845,7 +845,7 @@ func TestGinNoopAuth_DeepCopy(t *testing.T) {
 			claims.ClientID = "mutated"
 		} else {
 			assert.Equal(t, "original", claims.ClientID)
-			assert.Equal(t, []string{"read"}, claims.Scopes)
+			assert.Equal(t, []string{"svc:data:read"}, claims.Scopes)
 		}
 	})
 
@@ -861,7 +861,7 @@ func TestGinNoopAuth_DeepCopy(t *testing.T) {
 
 	// Original unchanged
 	assert.Equal(t, "original", defaultClaims.ClientID)
-	assert.Equal(t, []string{"read"}, defaultClaims.Scopes)
+	assert.Equal(t, []string{"svc:data:read"}, defaultClaims.Scopes)
 }
 
 func TestGinNoopAuth_NilDefaultClaimsPanics(t *testing.T) {
@@ -873,7 +873,7 @@ func TestGinNoopAuth_NilDefaultClaimsPanics(t *testing.T) {
 func TestGinNoopAuth_ConcurrentDeepCopy(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "concurrent-client",
-		Scopes:   []string{"read", "write"},
+		Scopes:   []string{"svc:data:read", "svc:data:write"},
 	}
 
 	// Single router — concurrent requests hit the same handler chain.
@@ -902,7 +902,7 @@ func TestGinNoopAuth_ConcurrentDeepCopy(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, "concurrent-client", defaultClaims.ClientID)
-	assert.Equal(t, []string{"read", "write"}, defaultClaims.Scopes)
+	assert.Equal(t, []string{"svc:data:read", "svc:data:write"}, defaultClaims.Scopes)
 }
 
 func TestGinNoopAuth_DeepCopyNumericDates(t *testing.T) {
@@ -973,7 +973,7 @@ func TestGinNoopScope_PassesThrough(t *testing.T) {
 // --- Middleware Chain Tests ---
 
 func TestGinMiddlewareChain_BearerAuth_RequireScope(t *testing.T) {
-	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read", "write"}}
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"svc:data:read", "svc:data:write"}}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
@@ -982,7 +982,7 @@ func TestGinMiddlewareChain_BearerAuth_RequireScope(t *testing.T) {
 
 	router := gin.New()
 	router.Use(GinBearerAuth(validator))
-	router.Use(GinRequireScope("read"))
+	router.Use(GinRequireScope("svc:data:read"))
 
 	handlerCalled := false
 	router.GET("/test", func(_ *gin.Context) { handlerCalled = true })
@@ -997,7 +997,7 @@ func TestGinMiddlewareChain_BearerAuth_RequireScope(t *testing.T) {
 }
 
 func TestGinMiddlewareChain_BearerAuth_RequireScope_Denied(t *testing.T) {
-	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read"}}
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"svc:data:read"}}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
@@ -1006,7 +1006,7 @@ func TestGinMiddlewareChain_BearerAuth_RequireScope_Denied(t *testing.T) {
 
 	router := gin.New()
 	router.Use(GinBearerAuth(validator))
-	router.Use(GinRequireScope("admin"))
+	router.Use(GinRequireScope("svc:admin:manage"))
 
 	handlerCalled := false
 	router.GET("/test", func(_ *gin.Context) { handlerCalled = true })
@@ -1021,7 +1021,7 @@ func TestGinMiddlewareChain_BearerAuth_RequireScope_Denied(t *testing.T) {
 }
 
 func TestGinMiddlewareChain_BearerAuth_RequireAnyScope(t *testing.T) {
-	claims := &Claims{ClientID: "chain-client", Scopes: []string{"read", "write"}}
+	claims := &Claims{ClientID: "chain-client", Scopes: []string{"svc:data:read", "svc:data:write"}}
 	validator := &mockTokenValidator{
 		ValidateTokenFunc: func(_ context.Context, _ string) (*Claims, error) {
 			return claims, nil
@@ -1030,7 +1030,7 @@ func TestGinMiddlewareChain_BearerAuth_RequireAnyScope(t *testing.T) {
 
 	router := gin.New()
 	router.Use(GinBearerAuth(validator))
-	router.Use(GinRequireAnyScope([]string{"admin", "write"}))
+	router.Use(GinRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"}))
 
 	handlerCalled := false
 	router.GET("/test", func(_ *gin.Context) { handlerCalled = true })
@@ -1047,12 +1047,12 @@ func TestGinMiddlewareChain_BearerAuth_RequireAnyScope(t *testing.T) {
 func TestGinMiddlewareChain_NoopAuth_RequireScope(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "noop-chain",
-		Scopes:   []string{"read", "admin"},
+		Scopes:   []string{"svc:data:read", "svc:admin:manage"},
 	}
 
 	router := gin.New()
 	router.Use(GinNoopAuth(defaultClaims))
-	router.Use(GinRequireScope("admin"))
+	router.Use(GinRequireScope("svc:admin:manage"))
 
 	handlerCalled := false
 	router.GET("/test", func(c *gin.Context) {
@@ -1073,7 +1073,7 @@ func TestGinMiddlewareChain_NoopAuth_RequireScope(t *testing.T) {
 func TestGinMiddlewareChain_NoopAuth_NoopScope(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "noop-full",
-		Scopes:   []string{"dev"},
+		Scopes:   []string{"svc:data:dev"},
 	}
 
 	router := gin.New()
@@ -1161,7 +1161,7 @@ func TestGinRequireScope_WrongTypeInContext(t *testing.T) {
 		c.Set("auth_claims", "not-a-claims-pointer")
 		c.Next()
 	})
-	router.Use(GinRequireScope("read"))
+	router.Use(GinRequireScope("svc:data:read"))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1180,7 +1180,7 @@ func TestGinRequireScope_NilClaimsInContext(t *testing.T) {
 		c.Set("auth_claims", (*Claims)(nil))
 		c.Next()
 	})
-	router.Use(GinRequireScope("read"))
+	router.Use(GinRequireScope("svc:data:read"))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1198,7 +1198,7 @@ func TestGinRequireAnyScope_WrongTypeInContext(t *testing.T) {
 		c.Set("auth_claims", 42)
 		c.Next()
 	})
-	router.Use(GinRequireAnyScope([]string{"read"}))
+	router.Use(GinRequireAnyScope([]string{"svc:data:read"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1216,7 +1216,7 @@ func TestGinRequireAnyScope_NilClaimsInContext(t *testing.T) {
 		c.Set("auth_claims", (*Claims)(nil))
 		c.Next()
 	})
-	router.Use(GinRequireAnyScope([]string{"read"}))
+	router.Use(GinRequireAnyScope([]string{"svc:data:read"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1229,14 +1229,14 @@ func TestGinRequireAnyScope_NilClaimsInContext(t *testing.T) {
 }
 
 func TestGinRequireAnyScope_CustomClaimsKey(t *testing.T) {
-	claims := &Claims{Scopes: []string{"admin"}}
+	claims := &Claims{Scopes: []string{"svc:admin:manage"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("custom_key", claims)
 		c.Next()
 	})
-	router.Use(GinRequireAnyScope([]string{"admin", "write"}, WithGinScopeClaimsKey("custom_key")))
+	router.Use(GinRequireAnyScope([]string{"svc:admin:manage", "svc:data:write"}, WithGinScopeClaimsKey("custom_key")))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -1290,13 +1290,13 @@ func TestGinNoopAuth_DeepCopyAudience(t *testing.T) {
 func TestGinNoopAuth_ScopeKeyMismatch_Returns401(t *testing.T) {
 	defaultClaims := &Claims{
 		ClientID: "mismatch-test",
-		Scopes:   []string{"read"},
+		Scopes:   []string{"svc:data:read"},
 	}
 
 	router := gin.New()
 	router.Use(GinNoopAuth(defaultClaims))
 	// GinNoopAuth stores under "auth_claims", but scope looks under "custom_key"
-	router.Use(GinRequireScope("read", WithGinScopeClaimsKey("custom_key")))
+	router.Use(GinRequireScope("svc:data:read", WithGinScopeClaimsKey("custom_key")))
 
 	called := false
 	router.GET("/test", func(_ *gin.Context) { called = true })
@@ -1378,7 +1378,7 @@ func TestGinRequireScopeWildcard_ScopeMissing(t *testing.T) {
 
 func TestGinRequireScopeWildcard_NoClaims(t *testing.T) {
 	router := gin.New()
-	router.Use(GinRequireScopeWildcard("read"))
+	router.Use(GinRequireScopeWildcard("svc:data:read"))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1397,14 +1397,14 @@ func TestGinRequireScopeWildcard_EmptyScopePanics(t *testing.T) {
 }
 
 func TestGinRequireScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireScopeWildcard("admin"))
+	router.Use(GinRequireScopeWildcard("svc:admin:manage"))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1446,7 +1446,7 @@ func TestGinRequireAnyScopeWildcard_NoneMatch(t *testing.T) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireAnyScopeWildcard([]string{"admin", "write"}))
+	router.Use(GinRequireAnyScopeWildcard([]string{"svc:admin:manage", "svc:data:write"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1456,12 +1456,12 @@ func TestGinRequireAnyScopeWildcard_NoneMatch(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	resp := parseGinErrorResponse(t, w)
 	assert.Equal(t, "insufficient_scope", resp.Error)
-	assert.Equal(t, "Required one of scopes: admin, write", resp.ErrorDescription)
+	assert.Equal(t, "Required one of scopes: svc:admin:manage, svc:data:write", resp.ErrorDescription)
 }
 
 func TestGinRequireAnyScopeWildcard_NoClaims(t *testing.T) {
 	router := gin.New()
-	router.Use(GinRequireAnyScopeWildcard([]string{"read"}))
+	router.Use(GinRequireAnyScopeWildcard([]string{"svc:data:read"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1534,7 +1534,7 @@ func TestGinMiddlewareChain_BearerAuth_RequireScopeWildcard_Denied(t *testing.T)
 func TestGinRequireAnyScopeWildcard_DefensiveScopesCopy(t *testing.T) {
 	claims := &Claims{Scopes: []string{"admin:*"}}
 
-	scopes := []string{"admin:read", "write"}
+	scopes := []string{"admin:read", "svc:data:write"}
 	mw := GinRequireAnyScopeWildcard(scopes)
 
 	// Mutate original slice after middleware creation
@@ -1558,14 +1558,14 @@ func TestGinRequireAnyScopeWildcard_DefensiveScopesCopy(t *testing.T) {
 }
 
 func TestGinRequireAnyScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireAnyScopeWildcard([]string{"admin", "write"}))
+	router.Use(GinRequireAnyScopeWildcard([]string{"svc:admin:manage", "svc:data:write"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1575,11 +1575,11 @@ func TestGinRequireAnyScopeWildcard_WWWAuthenticateHeader_403(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	wwwAuth := w.Header().Get("WWW-Authenticate")
 	assert.Contains(t, wwwAuth, `error="insufficient_scope"`)
-	assert.Contains(t, wwwAuth, "admin, write")
+	assert.Contains(t, wwwAuth, "svc:admin:manage, svc:data:write")
 }
 
 func TestGinRequireScopeWildcard_CustomErrorHandler(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	customCalled := false
 	var receivedErrCode, receivedErrDesc string
@@ -1588,7 +1588,7 @@ func TestGinRequireScopeWildcard_CustomErrorHandler(t *testing.T) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireScopeWildcard("admin", WithGinScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
+	router.Use(GinRequireScopeWildcard("svc:admin:manage", WithGinScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		receivedErrCode = errCode
 		receivedErrDesc = errDesc
@@ -1604,11 +1604,11 @@ func TestGinRequireScopeWildcard_CustomErrorHandler(t *testing.T) {
 	assert.True(t, customCalled)
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	assert.Equal(t, "insufficient_scope", receivedErrCode)
-	assert.Equal(t, "Required scope: admin", receivedErrDesc)
+	assert.Equal(t, "Required scope: svc:admin:manage", receivedErrDesc)
 }
 
 func TestGinRequireAnyScopeWildcard_CustomErrorHandler(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 
 	customCalled := false
 	var receivedErrCode, receivedErrDesc string
@@ -1617,7 +1617,7 @@ func TestGinRequireAnyScopeWildcard_CustomErrorHandler(t *testing.T) {
 		c.Set("auth_claims", claims)
 		c.Next()
 	})
-	router.Use(GinRequireAnyScopeWildcard([]string{"admin", "write"}, WithGinScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
+	router.Use(GinRequireAnyScopeWildcard([]string{"svc:admin:manage", "svc:data:write"}, WithGinScopeErrorHandler(func(c *gin.Context, statusCode int, errCode, errDesc string) {
 		customCalled = true
 		receivedErrCode = errCode
 		receivedErrDesc = errDesc
@@ -1632,7 +1632,7 @@ func TestGinRequireAnyScopeWildcard_CustomErrorHandler(t *testing.T) {
 	assert.True(t, customCalled)
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	assert.Equal(t, "insufficient_scope", receivedErrCode)
-	assert.Equal(t, "Required one of scopes: admin, write", receivedErrDesc)
+	assert.Equal(t, "Required one of scopes: svc:admin:manage, svc:data:write", receivedErrDesc)
 }
 
 func TestGinRequireScopeWildcard_CustomClaimsKey(t *testing.T) {
@@ -1685,7 +1685,7 @@ func TestGinRequireScopeWildcard_WrongTypeInContext(t *testing.T) {
 		c.Set("auth_claims", "not-a-claims-pointer")
 		c.Next()
 	})
-	router.Use(GinRequireScopeWildcard("read"))
+	router.Use(GinRequireScopeWildcard("svc:data:read"))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1704,7 +1704,7 @@ func TestGinRequireScopeWildcard_NilClaimsInContext(t *testing.T) {
 		c.Set("auth_claims", (*Claims)(nil))
 		c.Next()
 	})
-	router.Use(GinRequireScopeWildcard("read"))
+	router.Use(GinRequireScopeWildcard("svc:data:read"))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1722,7 +1722,7 @@ func TestGinRequireAnyScopeWildcard_WrongTypeInContext(t *testing.T) {
 		c.Set("auth_claims", 42)
 		c.Next()
 	})
-	router.Use(GinRequireAnyScopeWildcard([]string{"read"}))
+	router.Use(GinRequireAnyScopeWildcard([]string{"svc:data:read"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()
@@ -1740,7 +1740,7 @@ func TestGinRequireAnyScopeWildcard_NilClaimsInContext(t *testing.T) {
 		c.Set("auth_claims", (*Claims)(nil))
 		c.Next()
 	})
-	router.Use(GinRequireAnyScopeWildcard([]string{"read"}))
+	router.Use(GinRequireAnyScopeWildcard([]string{"svc:data:read"}))
 	router.GET("/test", func(_ *gin.Context) {})
 
 	w := httptest.NewRecorder()

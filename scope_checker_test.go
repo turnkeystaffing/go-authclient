@@ -9,10 +9,10 @@ import (
 )
 
 func ExampleHasScope() {
-	claims := &Claims{Scopes: []string{"read", "write", "admin"}}
-	fmt.Println(HasScope(claims, "admin"))
-	fmt.Println(HasScope(claims, "delete"))
-	fmt.Println(HasScope(nil, "admin"))
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write", "svc:admin:manage"}}
+	fmt.Println(HasScope(claims, "svc:admin:manage"))
+	fmt.Println(HasScope(claims, "svc:data:delete"))
+	fmt.Println(HasScope(nil, "svc:admin:manage"))
 	// Output:
 	// true
 	// false
@@ -20,9 +20,9 @@ func ExampleHasScope() {
 }
 
 func ExampleHasAnyScope() {
-	claims := &Claims{Scopes: []string{"read", "write"}}
-	fmt.Println(HasAnyScope(claims, "admin", "write"))
-	fmt.Println(HasAnyScope(claims, "admin", "delete"))
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write"}}
+	fmt.Println(HasAnyScope(claims, "svc:admin:manage", "svc:data:write"))
+	fmt.Println(HasAnyScope(claims, "svc:admin:manage", "svc:data:delete"))
 	// Output:
 	// true
 	// false
@@ -51,93 +51,94 @@ func ExampleHasAnyScopeWildcard() {
 }
 
 func TestHasScope_ExactMatch(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read", "write", "admin"}}
-	assert.True(t, HasScope(claims, "admin"))
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write", "svc:admin:manage"}}
+	assert.True(t, HasScope(claims, "svc:admin:manage"))
 }
 
 func TestHasScope_NotFound(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read", "write"}}
-	assert.False(t, HasScope(claims, "admin"))
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write"}}
+	assert.False(t, HasScope(claims, "svc:admin:manage"))
 }
 
 func TestHasScope_NilClaims(t *testing.T) {
-	assert.False(t, HasScope(nil, "admin"))
+	assert.False(t, HasScope(nil, "svc:admin:manage"))
 }
 
 func TestHasScope_EmptyScopeList(t *testing.T) {
 	claims := &Claims{Scopes: []string{}}
-	assert.False(t, HasScope(claims, "read"))
+	assert.False(t, HasScope(claims, "svc:data:read"))
 }
 
 func TestHasScope_EmptyRequiredScope(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read", "write"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write"}}
 	assert.False(t, HasScope(claims, ""))
 }
 
 func TestHasScope_NilScopesField(t *testing.T) {
 	claims := &Claims{ClientID: "client-1"} // Scopes is nil (not empty slice)
-	assert.False(t, HasScope(claims, "read"))
+	assert.False(t, HasScope(claims, "svc:data:read"))
 }
 
 func TestHasAnyScope_NilScopesField(t *testing.T) {
 	claims := &Claims{ClientID: "client-1"} // Scopes is nil
-	assert.False(t, HasAnyScope(claims, "read", "write"))
+	assert.False(t, HasAnyScope(claims, "svc:data:read", "svc:data:write"))
 }
 
 func TestHasScope_SubstringNonMatch(t *testing.T) {
-	claims := &Claims{Scopes: []string{"admin:read", "administrator"}}
-	assert.False(t, HasScope(claims, "admin"))
+	claims := &Claims{Scopes: []string{"admin:read", "svc:admin:manage"}}
+	assert.False(t, HasScope(claims, "svc:admin:extra"))
 }
 
 func TestHasScope_CaseSensitive(t *testing.T) {
+	// Uppercase scopes are rejected as invalid by IsValidScope
 	claims := &Claims{Scopes: []string{"Read", "WRITE"}}
-	assert.False(t, HasScope(claims, "read"))
-	assert.False(t, HasScope(claims, "write"))
-	assert.True(t, HasScope(claims, "Read"))
-	assert.True(t, HasScope(claims, "WRITE"))
+	assert.False(t, HasScope(claims, "read"), "lowercase required scope does not match uppercase user scope")
+	assert.False(t, HasScope(claims, "write"), "lowercase required scope does not match uppercase user scope")
+	assert.False(t, HasScope(claims, "Read"), "uppercase required scope is invalid per IsValidScope")
+	assert.False(t, HasScope(claims, "WRITE"), "uppercase required scope is invalid per IsValidScope")
 }
 
 func TestHasAnyScope_OneMatch(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read", "write"}}
-	assert.True(t, HasAnyScope(claims, "admin", "write"))
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write"}}
+	assert.True(t, HasAnyScope(claims, "svc:admin:manage", "svc:data:write"))
 }
 
 func TestHasAnyScope_NoMatch(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read", "write"}}
-	assert.False(t, HasAnyScope(claims, "admin", "delete"))
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write"}}
+	assert.False(t, HasAnyScope(claims, "svc:admin:manage", "svc:data:delete"))
 }
 
 func TestHasAnyScope_NilClaims(t *testing.T) {
-	assert.False(t, HasAnyScope(nil, "read"))
+	assert.False(t, HasAnyScope(nil, "svc:data:read"))
 }
 
 func TestHasAnyScope_EmptyRequiredScopes(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read", "write"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write"}}
 	assert.False(t, HasAnyScope(claims))
 }
 
 func TestHasAnyScope_AllPresent(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read", "write", "admin"}}
-	assert.True(t, HasAnyScope(claims, "read", "write", "admin"))
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write", "svc:admin:manage"}}
+	assert.True(t, HasAnyScope(claims, "svc:data:read", "svc:data:write", "svc:admin:manage"))
 }
 
 func TestHasAnyScope_MixedEmptyAndValid(t *testing.T) {
-	claims := &Claims{Scopes: []string{"valid_scope"}}
-	assert.True(t, HasAnyScope(claims, "", "valid_scope"))
+	claims := &Claims{Scopes: []string{"svc:data:valid"}}
+	assert.True(t, HasAnyScope(claims, "", "svc:data:valid"))
 }
 
 func TestHasAnyScope_SingleEmptyString(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	assert.False(t, HasAnyScope(claims, ""))
 }
 
 func TestHasAnyScope_AllEmpty(t *testing.T) {
-	claims := &Claims{Scopes: []string{"read"}}
+	claims := &Claims{Scopes: []string{"svc:data:read"}}
 	assert.False(t, HasAnyScope(claims, "", ""))
 }
 
 func BenchmarkHasScope_TypicalOAuth(b *testing.B) {
-	claims := &Claims{Scopes: []string{"read", "write", "admin", "audit:read", "audit:write", "scope:manage", "user:read", "user:write"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write", "svc:admin:manage", "audit:read", "audit:write", "scope:manage", "user:read", "user:write"}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		HasScope(claims, "audit:write")
@@ -145,18 +146,18 @@ func BenchmarkHasScope_TypicalOAuth(b *testing.B) {
 }
 
 func BenchmarkHasScope_NotFound(b *testing.B) {
-	claims := &Claims{Scopes: []string{"read", "write", "admin", "audit:read", "audit:write", "scope:manage", "user:read", "user:write"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write", "svc:admin:manage", "audit:read", "audit:write", "scope:manage", "user:read", "user:write"}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		HasScope(claims, "nonexistent")
+		HasScope(claims, "svc:data:nonexistent")
 	}
 }
 
 func BenchmarkHasAnyScope_TypicalOAuth(b *testing.B) {
-	claims := &Claims{Scopes: []string{"read", "write", "admin", "audit:read", "audit:write", "scope:manage", "user:read", "user:write"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write", "svc:admin:manage", "audit:read", "audit:write", "scope:manage", "user:read", "user:write"}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		HasAnyScope(claims, "delete", "scope:manage", "nonexistent")
+		HasAnyScope(claims, "svc:data:delete", "scope:manage", "svc:data:nonexistent")
 	}
 }
 
@@ -316,15 +317,15 @@ func TestHasScopeWildcard(t *testing.T) {
 }
 
 func TestHasScopeWildcard_NilAndEdgeCases(t *testing.T) {
-	assert.False(t, HasScopeWildcard(nil, "admin"), "nil claims")
-	assert.False(t, HasScopeWildcard(&Claims{Scopes: []string{"read"}}, ""), "empty required scope")
-	assert.False(t, HasScopeWildcard(&Claims{ClientID: "c"}, "read"), "nil Scopes field")
-	assert.False(t, HasScopeWildcard(&Claims{Scopes: []string{}}, "read"), "empty scopes list")
+	assert.False(t, HasScopeWildcard(nil, "svc:admin:manage"), "nil claims")
+	assert.False(t, HasScopeWildcard(&Claims{Scopes: []string{"svc:data:read"}}, ""), "empty required scope")
+	assert.False(t, HasScopeWildcard(&Claims{ClientID: "c"}, "svc:data:read"), "nil Scopes field")
+	assert.False(t, HasScopeWildcard(&Claims{Scopes: []string{}}, "svc:data:read"), "empty scopes list")
 
-	// Case sensitivity preserved
+	// Uppercase scopes are rejected as invalid by IsValidScope
 	claims := &Claims{Scopes: []string{"Admin:*"}}
-	assert.False(t, HasScopeWildcard(claims, "admin:read"), "case sensitive")
-	assert.True(t, HasScopeWildcard(claims, "Admin:read"), "case sensitive match")
+	assert.False(t, HasScopeWildcard(claims, "admin:read"), "uppercase user scope is invalid, no match")
+	assert.False(t, HasScopeWildcard(claims, "Admin:read"), "uppercase required scope is invalid per IsValidScope")
 }
 
 func TestHasAnyScopeWildcard(t *testing.T) {
@@ -425,7 +426,7 @@ func TestHasScopeWildcard_ConcurrentSafety(t *testing.T) {
 // ============================================================================
 
 func BenchmarkHasScopeWildcard_WildcardMatch(b *testing.B) {
-	claims := &Claims{Scopes: []string{"read", "write", "bgc:contractors:*", "admin:*"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write", "bgc:contractors:*", "admin:*"}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		HasScopeWildcard(claims, "bgc:contractors:read")
@@ -433,7 +434,7 @@ func BenchmarkHasScopeWildcard_WildcardMatch(b *testing.B) {
 }
 
 func BenchmarkHasScopeWildcard_ExactMatch(b *testing.B) {
-	claims := &Claims{Scopes: []string{"read", "write", "bgc:contractors:read", "admin:users"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write", "bgc:contractors:read", "admin:users"}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		HasScopeWildcard(claims, "bgc:contractors:read")
@@ -441,7 +442,7 @@ func BenchmarkHasScopeWildcard_ExactMatch(b *testing.B) {
 }
 
 func BenchmarkHasScopeWildcard_NotFound(b *testing.B) {
-	claims := &Claims{Scopes: []string{"read", "write", "bgc:contractors:*", "admin:*"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write", "bgc:contractors:*", "admin:*"}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		HasScopeWildcard(claims, "nonexistent:scope:here")
@@ -449,7 +450,7 @@ func BenchmarkHasScopeWildcard_NotFound(b *testing.B) {
 }
 
 func BenchmarkHasScopeWildcard_ServiceWildcard(b *testing.B) {
-	claims := &Claims{Scopes: []string{"read", "write", "bgc:*", "admin:users"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write", "bgc:*", "admin:users"}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		HasScopeWildcard(claims, "bgc:contractors:read")
@@ -465,7 +466,7 @@ func BenchmarkHasScopeWildcard_ManySegments(b *testing.B) {
 }
 
 func BenchmarkHasAnyScopeWildcard_Match(b *testing.B) {
-	claims := &Claims{Scopes: []string{"read", "write", "bgc:contractors:*", "admin:*"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write", "bgc:contractors:*", "admin:*"}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		HasAnyScopeWildcard(claims, "acct:invoices:read", "bgc:contractors:write")
@@ -473,7 +474,7 @@ func BenchmarkHasAnyScopeWildcard_Match(b *testing.B) {
 }
 
 func BenchmarkHasAnyScopeWildcard_NoMatch(b *testing.B) {
-	claims := &Claims{Scopes: []string{"read", "write", "bgc:contractors:*", "admin:*"}}
+	claims := &Claims{Scopes: []string{"svc:data:read", "svc:data:write", "bgc:contractors:*", "admin:*"}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		HasAnyScopeWildcard(claims, "acct:invoices:read", "acct:expenses:approve")
